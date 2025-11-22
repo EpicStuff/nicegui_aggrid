@@ -1,7 +1,7 @@
 from collections.abc import Callable, Iterator
 from typing import Any, Self
 
-from epicstuff import Dict
+from epicstuff import BoxDict, Dict
 from nicegui import ui
 
 
@@ -134,8 +134,8 @@ class AgDict:
 		self.cols = [{'field': str(col)} for col in df.columns]
 		self.rows = df.to_dicts()  # pyright: ignore[reportAttributeAccessIssue]
 
-class _AgRows(Dict):
-	_protected_keys = Dict._protected_keys | {'agdict', 'grids', 'id_field'}  # noqa: SLF001
+class _AgRows(BoxDict):
+	_protected_keys = BoxDict._protected_keys | {'agdict', 'grids', 'id_field'}  # noqa: SLF001
 
 	def __init__(self, _map: list | None, agdict: AgDict, id_field: str) -> None:
 		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
@@ -169,8 +169,8 @@ class _AgRows(Dict):
 			return _AgRow(val, self, self.grids)
 		return val
 
-class _AgRow(Dict):
-	_protected_keys = Dict._protected_keys | {'agrows', 'grids'}  # noqa: SLF001
+class _AgRow(BoxDict):
+	_protected_keys = BoxDict._protected_keys | {'agrows', 'grids'}  # noqa: SLF001
 	def __init__(self, _map: dict, agrows: _AgRows, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
 		super().__init__(_map, _create=True)
 		self.grids = grids  # this being set indicates that grid has been initialised

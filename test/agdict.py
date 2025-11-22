@@ -3,7 +3,7 @@ import pandas as pd
 from epicstuff import rich_try
 from nicegui import app, ui
 
-from nicegui_aggrid import jailbreak, AgDict
+from nicegui_aggrid import enterprise, AgDict
 
 
 def tmp(grid=None):
@@ -29,7 +29,7 @@ agdict = tmp()
 
 @rich_try
 def main():
-	jailbreak(None, '/home/derek/Seafile/Documents/Projects/nicegui_aggrid/ag-grid-enterprise.min.js', '0000-0000-0000-0000')
+	enterprise('/home/derek/Seafile/Documents/Projects/nicegui_aggrid/ag-grid-enterprise.min.js', None, '0000-0000-0000-0000')
 
 	grid = ui.aggrid({
 		'defaultColDef': {'flex': 1, 'sortable': True, 'filter': True, 'resizable': True},

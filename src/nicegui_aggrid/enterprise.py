@@ -6,7 +6,7 @@ from nicegui import app, ui
 
 _shim_created = False
 
-def enterprise(shim_dir: str | Path | None = None, aggrid_js_path: str | Path | None = None, license_key: str | None = None) -> None:
+def enterprise(aggrid_js_path: str | Path | None = None, shim_dir: str | Path | None = None, license_key: str | None = None) -> None:
 	global _shim_created
 
 	shim_dir = shim_dir or Path('.nicegui') / 'aggrid_shim'

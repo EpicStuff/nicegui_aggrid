@@ -5,20 +5,20 @@ requires = ["setuptools>=61", "wheel"]
 [project]
 authors = [{email = "EpicStuff@users.noreply.github.com", name = "EpicStuff"}]
 classifiers = [
-	"Operating System :: OS Independent",
-	"Programming Language :: Python :: 3",
-	"Programming Language :: Python :: 3.13",
+"Operating System :: OS Independent",
+"Programming Language :: Python :: 3",
+"Programming Language :: Python :: 3.13",
 ]
-description = "Utilities for NiceGUI's aggrid"
 dependencies = ["epicstuff", "nicegui"]
+description = "Utilities for NiceGUI's aggrid"
 keywords = ["aggrid", "nicegui"]
 license = {file = "LICENSE"}
 name = "nicegui_aggrid"
 readme = "README.md"
 requires-python = ">=3.13"
-version = "0.0.1"
+version = "0.0.2"
 
 [project.urls]
 Homepage = "https://github.com/EpicStuff/nicegui_aggrid"
-Source = "https://github.com/EpicStuff/nicegui_aggrid"
 Issues = "https://github.com/EpicStuff/nicegui_aggrid/issues"
+Source = "https://github.com/EpicStuff/nicegui_aggrid"
