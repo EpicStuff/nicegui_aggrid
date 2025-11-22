@@ -1,1 +1,7 @@
 .vscode/
+**/__pycache__/
+**/.nicegui/
+**/*.egg-info/
+**/build/
+**/dist/
+ag-grid-enterprise.min.js

@@ -1,14 +1,13 @@
+# ruff: noqa
 import pandas as pd
-# ruff: noqa: PLR2004
-from epicstuff import rich_try, run_fix_import, run_install_trace
+from epicstuff import rich_try
 from nicegui import app, ui
 
-import src.__init__, utils.aggrid
-from src.utils import load_data
+from nicegui_aggrid import jailbreak, AgDict
 
 
 def tmp(grid=None):
-	return utils.aggrid.AgDict(
+	return AgDict(
 		columns=[
 			{'field': 'category', 'rowGroup': True, 'hide': True},
 			{'field': 'product'},
@@ -30,7 +29,7 @@ agdict = tmp()
 
 @rich_try
 def main():
-	utils.aggrid.jailbreak()
+	jailbreak(None, '/home/derek/Seafile/Documents/Projects/nicegui_aggrid/ag-grid-enterprise.min.js', '0000-0000-0000-0000')
 
 	grid = ui.aggrid({
 		'defaultColDef': {'flex': 1, 'sortable': True, 'filter': True, 'resizable': True},
@@ -78,7 +77,6 @@ def main():
 
 
 def resetish():
-	global agdict
 	agdict.rows = [
 		{'category': 'Fruit', 'product': 'Apple', 'price': 1.2},
 		{'category': 'Fruit', 'product': 'Banana', 'price': 0.9},
@@ -106,14 +104,13 @@ def tmp2():
 # 	),
 # 	id_field='USERID',
 # )
-async def maxtest(env: str = 'dev'):
-	data = await load_data('maxtest', env, limit=None)
-	agdict.grid = ui.aggrid({'defaultColDef': {'flex': 1}}, theme='balham', auto_size_columns=False)\
-		.classes('h-128')
-	from time import sleep
-	sleep(1)
+async def maxtest():
+	data = pd.DataFrame([
+		{'USERID': 'user1', 'COTDIVISION': 'A', 'DISPLAYNAME': 'Alice'},
+		{'USERID': 'user2', 'COTDIVISION': 'B', 'DISPLAYNAME': 'Bob'},
+		{'USERID': 'user3', 'COTDIVISION': 'A', 'DISPLAYNAME': 'Charlie'},
+	])
 	agdict.from_pandas(data)
-
 
 ui.run(main, show=False)
 
