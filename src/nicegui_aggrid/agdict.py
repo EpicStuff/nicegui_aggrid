@@ -12,57 +12,34 @@ class AgDict:
 	'''A Dict that can be "connected" to multiple aggrids such that changes to this Dict will be updated in all connected aggrids without the use of aggrid.update().'''
 
 	def __init__(
-		self, *,
-		columns: list | tuple | None = None, rows: list | tuple | None = None, grid: ui.aggrid | None = None,
-		id_field: str | None = None, loading: int = 1,
+		self,
+		options: dict | None = None, columns: list | tuple | None = None, rows: list | tuple | None = None,
+		id_field: str | None = None, grid: ui.aggrid | None = None, create_grid: bool = False, loading: int = 0,
+		**kwargs: Any,
 	) -> None:
 		'''Initialize an AgDict instance.
 
-		:param columns: List or tuple of column definitions. What would normally be in options["columnDefs"].
-		:param rows: List or tuple of row data. What would normally be in options["rowData"].
-		:param grid: An optional NiceGUI aggrid instance to connect to this AgDict. Can be added latter with the `grid` attribute.
+		:param options: Aggrid options, will get passed to the aggrid on creation if aggrid's options are empty.
+		:param columns: List or tuple of column definitions. What would normally be in options["columnDefs"]. Overwrites options.
+		:param rows: List or tuple of row data. What would normally be in options["rowData"]. Overwrites options.
 		:param id_field: The field to use as the unique identifier for rows.
+		:param grid: An optional NiceGUI aggrid instance to connect to this AgDict. Can be added latter with the `grid` attribute.
+		:param create_grid: If True, create a new NiceGUI aggrid instance during initialization.
 		:param loading: Number of loading skeleton rows to show when no rows are provided.
 		'''
 		super().__init__()
 		self.grids = []
 		self._enable_loading = loading
-		self.cols: Dict | list | tuple | None = columns
+		self.options = options or Dict()  # note: does not sync with rows/cols, just gets overwritten
+		# self.options = None
 		self.id_field = id_field
-		self.rows: _AgRows | list | tuple | None = rows  # pyright: ignore[reportAttributeAccessIssue]
-		self.grid: ui.aggrid | None = grid
-	def __setattr__(self, key: Any, val: Any) -> None:  # noqa: C901
-		if key == 'grid':
-			if val:
-				self.grids.append(val)
-				val.options['columnDefs'] = self.cols
-				val.options['rowData'] = self.rows.values()  # pyright: ignore[reportAttributeAccessIssue]
-				val.options[':getRowId'] = f'params => params.data.{self.id_field}'
-				# if self.is_loading:
-				# 	val.options['defaultColDef'] = {'cellRenderer': 'agSkeletonCellRenderer'}
-				val.update()
-				# TODO: think about/look into if options should be updated on change after this point
-			return
-		if key == 'rows':
-			# if new rows or if called by __setitem__ with key id_field
-			if not isinstance(val, _AgRows):
-				if self.id_field is None:
-					raise ValueError('id_field must be specified before setting rows.')
-				# if no rows
-				if val is None:
-					if self.cols is None:
-						raise ValueError('Columns must be set to use loading.')
-					val = [{col.field: '__loading' for col in self.cols}] * self._enable_loading
-				val = _AgRows(val, self, self.id_field)
-				for grid in self.iter_grids():
-					grid.run_grid_method('setGridOption', 'rowData', val.values())
-			# else, called by __iadd__ from _AgRows, grid allready updated, do nothing extra
-		elif key == 'cols':  # TODO
-			if hasattr(self, 'cols'):
-				print('Warning: changing cols after initialisation has not been implemented yet.')
-				return
-			val = list(map(Dict, val))
-		# if changing id_field and rows is allready set
+		self.cols: _AgCols | list | tuple | None = columns  # gets auto converted to _AgCols
+		self.rows: _AgRows | list | tuple | None = rows  # gets auto converted to _AgRows  # pyright: ignore[reportAttributeAccessIssue]
+		self.grid: ui.aggrid | None = grid or (ui.aggrid(self.options, **kwargs) if create_grid else None)
+	def __setattr__(self, key: Any, val: Any) -> None:  # noqa: C901, PLR0912, pylint: disable=too-many-branches
+		if key == 'options' and self.grids:
+			for grid in self.iter_grids():
+				grid.run_grid_method('updateGridOptions', val)		# if changing id_field and rows is allready set
 		elif key == 'id_field' and hasattr(self, 'rows'):
 			# set the new id_field
 			for grid in self.iter_grids():
@@ -72,6 +49,50 @@ class AgDict:
 			self.rows = self.rows.values()  # pyright: ignore[reportAttributeAccessIssue,reportOptionalMemberAccess]
 			return
 			# TODO: if no id feild provided, generate random/add number "column"
+		elif key == 'cols':  # TODO
+			if hasattr(self, 'cols'):
+				print('Warning: changing cols after initialisation has not been implemented yet.')
+				return
+			if val is not None:
+				val = _AgCols(val, self)
+		elif key == 'rows':
+			# if new rows or if called by __setitem__ with key id_field
+			if not isinstance(val, _AgRows):
+				if self.id_field is None:
+					raise ValueError('id_field must be specified before setting rows.')
+				# if no rows and loading enabled, create loading rows
+				if val is None and self._enable_loading:
+					if self.cols is None:
+						raise ValueError('Columns must be set to use loading.')
+					val = [{col.field: '__loading' for col in self.cols}] * self._enable_loading
+				val = _AgRows(val, self, self.id_field)
+				for grid in self.iter_grids():
+					grid.run_grid_method('setGridOption', 'rowData', val.values())
+			# else, called by __iadd__ from _AgRows, grid allready updated, do nothing extra
+			pass  # noqa: PIE790 pylint: disable=unnecessary-pass
+		elif key == 'grid':
+			if val:
+				self.grids.append(val)
+				if self.options and not val.options:
+					val.options = self.options
+				# if cols and rows not already set, get them from the grid
+				if self.cols:
+					val.options['columnDefs'] = self.cols.values()
+				elif val.options.get('columnDefs'):
+					self.cols = val.options['columnDefs']
+				if self.rows:
+					val.options['rowData'] = self.rows.values()  # pyright: ignore[reportAttributeAccessIssue]
+				elif val.options.get('rowData'):
+					self.rows = val.options['rowData']
+
+				if ':getRowId' in val.options:
+					print('Warning: Overwriting existing :getRowId.')
+				val.options[':getRowId'] = f'params => params.data.{self.id_field}'
+				# if self.is_loading:
+				# 	val.options['defaultColDef'] = {'cellRenderer': 'agSkeletonCellRenderer'}
+				val.update()
+				# TODO: think about/look into if options should be updated on change after this point
+			return
 
 		super().__setattr__(key, val)
 	def __getattr__(self, key: Any) -> Any:
@@ -87,6 +108,9 @@ class AgDict:
 		self.grids[:] = [g for g in self.grids if not g.is_deleted]
 		yield from self.grids
 
+	def classes(): ...
+	def style(): ...
+	def on(): ...
 	def from_pandas(self, df: 'pd.DataFrame'):  # pyright: ignore[reportUndefinedVariable] # noqa: F821
 		'''Replace rows and columns from a Pandas DataFrame.
 
@@ -134,6 +158,21 @@ class AgDict:
 		self.cols = [{'field': str(col)} for col in df.columns]
 		self.rows = df.to_dicts()  # pyright: ignore[reportAttributeAccessIssue]
 
+class _AgCols(BoxDict):
+	_protected_keys = BoxDict._protected_keys | {'agdict', 'grids', ''}  # noqa: SLF001
+
+	def __init__(self, cols: list | None, agdict: AgDict, **_) -> None:
+		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
+		super().__init__(_convert=True, _create=True)
+		self.cols = cols
+		self.agdict = agdict  # this being set indicates that grid has been initialised
+	def _do_convert(self, val: Any, **_) -> Any:  # pylint: disable=arguments-differ
+		if isinstance(val, dict):
+			return Dict(val)
+		return super()._do_convert(val)
+	def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+		return [] if self.cols is None else [dict(val) for val in self.cols]
+
 class _AgRows(BoxDict):
 	_protected_keys = BoxDict._protected_keys | {'agdict', 'grids', 'id_field'}  # noqa: SLF001
 
@@ -168,7 +207,6 @@ class _AgRows(BoxDict):
 		if isinstance(val, dict) and not isinstance(val, _AgRow):
 			return _AgRow(val, self, self.grids)
 		return val
-
 class _AgRow(BoxDict):
 	_protected_keys = BoxDict._protected_keys | {'agrows', 'grids'}  # noqa: SLF001
 	def __init__(self, _map: dict, agrows: _AgRows, grids: Callable[[], Iterator[ui.aggrid]]) -> None:

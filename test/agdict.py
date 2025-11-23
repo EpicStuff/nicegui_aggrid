@@ -1,13 +1,20 @@
 # ruff: noqa
 import pandas as pd
-from epicstuff import rich_try
+from epicstuff import rich_try, run_install_trace
 from nicegui import app, ui
 
 from nicegui_aggrid import enterprise, AgDict
 
 
 def tmp(grid=None):
+	print('test-.5')
 	return AgDict(
+		options={
+			'defaultColDef': {'flex': 1, 'sortable': True, 'filter': True, 'resizable': True},
+			'groupDisplayType': 'groupRows',
+			'groupDefaultExpanded': -1,  # expand all groups
+			'animateRows': True,
+		},
 		columns=[
 			{'field': 'category', 'rowGroup': True, 'hide': True},
 			{'field': 'product'},
@@ -30,14 +37,9 @@ agdict = tmp()
 @rich_try
 def main():
 	enterprise('/home/derek/Seafile/Documents/Projects/nicegui_aggrid/ag-grid-enterprise.min.js', None, '0000-0000-0000-0000')
+	print('test0')
 
-	grid = ui.aggrid({
-		'defaultColDef': {'flex': 1, 'sortable': True, 'filter': True, 'resizable': True},
-		'groupDisplayType': 'groupRows',
-		'groupDefaultExpanded': -1,  # expand all groups
-		'animateRows': True,
-            }, auto_size_columns=False,
-	).classes('h-128')
+	grid = ui.aggrid({}, auto_size_columns=False).classes('h-128')
 
 	agdict.grid = grid
 	# print(agdict.grids)
@@ -69,9 +71,27 @@ def main():
 		elif test_counter == 6:
 			del agdict.rows.orange
 
+	print('test1')
 	ui.button('test', on_click=test)
 	ui.button('reset', on_click=resetish)
 	ui.button('tmp', on_click=tmp2)
+
+	agdict2 = AgDict(grid=ui.aggrid({
+		'columnDefs': [
+			{'headerName': 'Name', 'field': 'name'},
+			{'headerName': 'Age', 'field': 'age'},
+			{'headerName': 'Parent', 'field': 'parent', 'hide': True},
+		],
+		'rowData': [
+			{'name': 'Alice', 'age': 18, 'parent': 'David'},
+			{'name': 'Bob', 'age': 21, 'parent': 'Eve'},
+			{'name': 'Carol', 'age': 42, 'parent': 'Frank'},
+		],
+		'rowSelection': {'mode': 'multiRow'},
+	}), id_field='name')
+
+	print(agdict2.rows)
+	print(agdict2.cols)
 
 	# ui.timer(1, tmp2)
 
@@ -112,6 +132,7 @@ async def maxtest():
 	])
 	agdict.from_pandas(data)
 
+print('test-1')
 ui.run(main, show=False)
 
 # TODO:
