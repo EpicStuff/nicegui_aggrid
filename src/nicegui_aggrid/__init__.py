@@ -5,4 +5,4 @@ from .enterprise import enterprise
 
 __version__: str = importlib.metadata.version('EpicStuff')
 
-__all__ = ['AgDict', 'jailbreak']
+__all__ = ['AgDict', 'enterprise']

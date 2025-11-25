@@ -70,6 +70,11 @@ def main():
 			del agdict.rows.orange.price
 		elif test_counter == 6:
 			del agdict.rows.orange
+		elif test_counter == 7:
+			# todo: this reloads the grid
+			agdict.on
+			agdict.classes
+			agdict.on('test').classes()
 
 	print('test1')
 	ui.button('test', on_click=test)
