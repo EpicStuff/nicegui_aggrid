@@ -11,7 +11,7 @@ class AgDict:
 	def __init__(
 		self,
 		options: dict | None = None, columns: list | tuple | None = None, rows: list | tuple | None = None,
-		id_field: str | None = None, grid: ui.aggrid | None = None, create_grid: bool = False, loading: int = 0,
+		id_field: str | None = None, grid: ui.aggrid | None = None, create_grid: bool = False, loading: int = 1,
 		**kwargs: Any,
 	) -> None:
 		'''Initialize an AgDict instance.
@@ -24,9 +24,35 @@ class AgDict:
 		:param create_grid: If True, create a new NiceGUI aggrid instance during initialization.
 		:param loading: Number of loading skeleton rows to show when no rows are provided.
 		'''
+		options = Dict(options, _create=True)
+		if grid:
+			# merge grid.options with option, options taking precedence
+			options: Dict = Dict(grid.options | options, _create=True)
+		# if cols not already set, get them from the grid
+		# # if columns, override options
+		if columns:
+			options.columnDefs = columns
+		# # else, get columns from options
+		elif options.get('columnDefs'):
+			columns = options.columnDefs
+		# if rows not already set, get them from the grid
+		# # if rows, override options
+		if rows:
+			options.rowData = rows
+		# # else, get rows from options
+		elif options.get('rowData'):
+			rows = options.rowData
+
+		# make aggrid use the id_field
+		if ':getRowId' in options: ...  # TODO: maybe extract id_field from existing getRowId
+		# enable loading skeletons if needed
+		if loading:
+			options.defaultColDef |= {'cellRendererSelector': "params => params.value === '__loading' ? {component: 'agSkeletonCellRenderer'} : null"}
+
 		super().__init__()
+
 		self.grids = []
-		self._enable_loading = loading
+		self._loading = loading
 		self.options = options or {}  # note: does not sync with rows/cols, just gets overwritten
 		self.id_field = id_field
 		self.cols = columns  # gets auto converted to _AgCols
@@ -78,10 +104,10 @@ class AgDict:
 			if self.id_field is None:
 				raise ValueError('id_field must be specified before setting rows.')
 			# if no rows and loading enabled, create loading rows
-			if val is None and self._enable_loading:
+			if val is None and self._loading:
 				if self.cols is None:
 					raise ValueError('Columns must be set to use loading.')
-				val = [{col.field: '__loading' for col in self.cols}] * self._enable_loading
+				val = [{col.field: '__loading' for col in self.cols}] * self._loading
 			val = _AgRows(val, self, self.id_field)  # pyright: ignore[reportArgumentType]
 			for grid in self.iter_grids():
 				grid.run_grid_method('setGridOption', 'rowData', val.values())
@@ -97,24 +123,15 @@ class AgDict:
 	@grid.setter
 	def grid(self, val: ui.aggrid | None) -> None:
 		if val:
-			self.grids.append(val)
-			if self.options:  # and not val.options
-				val.options |= self.options
-			# if cols and rows not already set, get them from the grid
-			if self.cols:
-				val.options['columnDefs'] = self.cols.values()  # pyright: ignore[reportAttributeAccessIssue]
-			elif val.options.get('columnDefs'):
-				self.cols = val.options['columnDefs']
+			# if theres rows, set id
 			if self.rows:
-				val.options['rowData'] = self.rows.values()  # pyright: ignore[reportAttributeAccessIssue]
-			elif val.options.get('rowData'):
-				self.rows = val.options['rowData']
+				getRowId = f'params => params.data.{self.id_field}'
+				if (':getRowId' in val.options and val.options[':getRowId'] != getRowId) or (':getRowId' in self.options and self.options[':getRowId'] != getRowId):
+					print('Warning: Overwriting existing :getRowId.')
+				self.options[':getRowId'] = getRowId
 
-			if ':getRowId' in val.options:
-				print('Warning: Overwriting existing :getRowId.')
-			val.options[':getRowId'] = f'params => params.data.{self.id_field}'
-			# if self.is_loading:
-			# 	val.options['defaultColDef'] = {'cellRenderer': 'agSkeletonCellRenderer'}
+			self.grids.append(val)
+			val.options |= self.options
 			val.update()
 			# TODO: think about/look into if options should be updated on change after this point
 
@@ -228,7 +245,7 @@ class _AgRows(BoxDict):
 			val[self.id_field] = key
 		if key != val[self.id_field]:
 			print(f'Warning: key {key} does not match id_field value {val[self.id_field]}')
-		if hasattr(self, 'agdict'):  # if the rows are being initialized, skip this
+		if self.hasattr('agdict'):  # if the rows are being initialized, skip this
 			for grid in self.grids():
 				grid.run_grid_method('applyTransaction', {'add': [val]})
 		super().__setitem__(key, val)
@@ -263,7 +280,7 @@ class _AgRow(BoxDict):
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row][field] = value`. Set field in all connected grids.'
 		super().__setitem__(key, val)
-		if hasattr(self, 'grids'):  # if the row is being initialized, skip this
+		if self.hasattr('grids'):  # if the row is being initialized, skip this
 			for grid in self.grids():
 				grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, val)
 	def __delitem__(self, key: Any) -> None:
@@ -272,6 +289,8 @@ class _AgRow(BoxDict):
 			grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, None)
 		super().__delitem__(key)
 
+	def _create(self):
+		return _AgRow({}, self.agrows, self.grids)
 # TODO:
 #  - make sync from grid to AgDict
 #  - test with complex objects, https://nicegui.io/documentation/aggrid#ag_grid_with_complex_objects

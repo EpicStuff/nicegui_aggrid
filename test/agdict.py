@@ -87,13 +87,14 @@ def main():
 			{'headerName': 'Age', 'field': 'age'},
 			{'headerName': 'Parent', 'field': 'parent', 'hide': True},
 		],
-		'rowData': [
-			{'name': 'Alice', 'age': 18, 'parent': 'David'},
-			{'name': 'Bob', 'age': 21, 'parent': 'Eve'},
-			{'name': 'Carol', 'age': 42, 'parent': 'Frank'},
-		],
 		'rowSelection': {'mode': 'multiRow'},
 	}), id_field='name')
+
+	rows = [
+		{'name': 'Alice', 'age': 18, 'parent': 'David'},
+		{'name': 'Bob', 'age': 21, 'parent': 'Eve'},
+		{'name': 'Carol', 'age': 42, 'parent': 'Frank'},
+	]
 
 	print(agdict2.rows)
 	print(agdict2.cols)
@@ -138,7 +139,7 @@ async def maxtest():
 	agdict.from_pandas(data)
 
 print('test-1')
-ui.run(main, show=False)
+ui.run(main, show=False, reload=False)
 
 # TODO:
 # - test changing id_field

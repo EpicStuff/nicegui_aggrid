@@ -1,7 +1,11 @@
-from nicegui import ui
+class a:
+	b = 1
 
-tmp = ui.label('temp')
 
-tmp.classes('test')
+x = a()
+print(x.b)
+x.b = 2
+print(x.b, a.b)
 
-ui.run(show=False)
+y = a
+print(y.b)
