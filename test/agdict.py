@@ -36,7 +36,7 @@ agdict = tmp()
 
 @rich_try
 def main():
-	enterprise('/home/derek/Seafile/Documents/Projects/nicegui_aggrid/ag-grid-enterprise.min.js', None, '0000-0000-0000-0000')
+	enterprise(None, None, '0000-0000-0000-0000')
 	print('test0')
 
 	grid = ui.aggrid({}, auto_size_columns=False).classes('h-128')
@@ -79,7 +79,7 @@ def main():
 	print('test1')
 	ui.button('test', on_click=test)
 	ui.button('reset', on_click=resetish)
-	ui.button('tmp', on_click=tmp2)
+	ui.button('tmp', on_click=agdict.update)
 
 	agdict2 = AgDict(grid=ui.aggrid({
 		'columnDefs': [

@@ -47,16 +47,16 @@ class AgDict:
 		if ':getRowId' in options: ...  # TODO: maybe extract id_field from existing getRowId
 		# enable loading skeletons if needed
 		if loading:
-			options.defaultColDef |= {'cellRendererSelector': "params => params.value === '__loading' ? {component: 'agSkeletonCellRenderer'} : null"}
+			options.defaultColDef |= {':cellRendererSelector': "params => params.value === '__loading' ? {component: 'agSkeletonCellRenderer'} : null"}
 
 		super().__init__()
 
 		self.grids = []
 		self._loading = loading
-		self.options = options or {}  # note: does not sync with rows/cols, just gets overwritten
 		self.id_field = id_field
 		self.cols = columns  # gets auto converted to _AgCols
 		self.rows = rows  # gets auto converted to _AgRows  # pyright: ignore[reportAttributeAccessIssue]
+		self.options = options or {}  # note: does not sync with rows/cols, just gets overwritten
 		self.grid = grid or (ui.aggrid(self.options, **kwargs) if create_grid else None)
 
 	# properties
@@ -65,10 +65,17 @@ class AgDict:
 		return self._options
 	@options.setter
 	def options(self, val: dict) -> None:
-		self._options = Dict(val)
-		if self.grids:
-			for grid in self.iter_grids():
-				grid.run_grid_method('updateGridOptions', val)		# if changing id_field and rows is allready set
+		# convert to Dict if not already
+		if not isinstance(val, Dict):
+			val = Dict(val, _create=True)
+		# overwrite rowData if rows are set
+		if self.rows:
+			val.rowData = self.rows.values()
+		# maybe also do the same with cols
+		# update self
+		self._options = val
+		for grid in self.iter_grids():
+			grid.run_grid_method('updateGridOptions', val)		# if changing id_field and rows is allready set
 	@property
 	def id_field(self) -> str | None:
 		return self._id_field
@@ -107,7 +114,7 @@ class AgDict:
 			if val is None and self._loading:
 				if self.cols is None:
 					raise ValueError('Columns must be set to use loading.')
-				val = [{col.field: '__loading' for col in self.cols}] * self._loading
+				val = [{col.field: '__loading' for col in self.cols.cols}] * self._loading
 			val = _AgRows(val, self, self.id_field)  # pyright: ignore[reportArgumentType]
 			for grid in self.iter_grids():
 				grid.run_grid_method('setGridOption', 'rowData', val.values())
@@ -164,6 +171,10 @@ class AgDict:
 		for grid in self.iter_grids():
 			grid.on(*args, **kwargs)
 		return self
+	def update(self) -> None:
+		'''Update all connected grids.'''
+		for grid in self.iter_grids():
+			grid.update()
 	def from_pandas(self, df: 'pd.DataFrame') -> None:  # pyright: ignore[reportUndefinedVariable] # noqa: F821
 		'''Replace rows and columns from a Pandas DataFrame.
 
@@ -219,11 +230,13 @@ class _AgCols(BoxDict):
 	def __init__(self, cols: list | None, agdict: AgDict, **_) -> None:
 		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
 		super().__init__(_convert=True, _create=True)
-		self.cols = cols
+		self.cols = cols or []
 		self.agdict = agdict  # this being set indicates that grid has been initialised
 	def _do_convert(self, val: Any, **_) -> Any:  # pylint: disable=arguments-differ
 		if isinstance(val, dict):
 			return Dict(val)
+		if isinstance(val, list):
+			val = list(val)
 		return super()._do_convert(val)
 	def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [] if self.cols is None else [dict(val) for val in self.cols]
@@ -266,7 +279,7 @@ class _AgRows(BoxDict):
 	def values(self) -> list[dict]:  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [dict(val) for val in super().values()]
 	def _do_convert(self, val: Any, **_) -> Any:  # pylint: disable=arguments-differ
-		if isinstance(val, list):
+		if isinstance(val, (list, tuple)):
 			return {row[self.id_field]: row for row in super()._do_convert(val)}
 		if isinstance(val, dict) and not isinstance(val, _AgRow):
 			return _AgRow(val, self, self.grids)
