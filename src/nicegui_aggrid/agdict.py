@@ -3,6 +3,7 @@ from typing import Any, Self, overload
 
 from epicstuff import BoxDict, Dict
 from nicegui import ui, events
+from box import Box
 
 
 class AgDict:
@@ -241,16 +242,25 @@ class _AgCols(BoxDict):
 	def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [] if self.cols is None else [dict(val) for val in self.cols]
 
-class _AgRows(BoxDict):
-	_protected_keys = BoxDict._protected_keys | {'agdict', 'grids', 'id_field'}  # noqa: SLF001
+class _AgRows(Box):
+	# _protected_keys = BoxDict._protected_keys | {'agdict', 'grids', 'id_field'}  # noqa: SLF001
 
 	# @overload
 	# def __new__(cls, _map: list | tuple | None, agdict: AgDict, id_field: str) -> Self: ...  # pyright: ignore[reportNoOverloadImplementation, reportInconsistentOverload] pylint: disable=signature-differs
-	def __init__(self, _map: list | tuple | None, agdict: AgDict, id_field: str) -> None:
+	def __init__(self, rows: list | tuple | None, agdict: AgDict, id_field: str) -> None:
+		rows = rows or []
 		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
 		self.id_field = id_field
-		super().__init__(self._do_convert(_map), _convert=True, _create=True)
+		super().__init__(box_class=_AgRow)
+		self._box_config['grids'] = self.grids
+		self._box_config['agrows'] = self
+		self.update({row[id_field]: row for row in rows})
 		self.agdict = agdict  # this being set indicates that grid has been initialised
+	def __setattr__(self, key, value) -> None:
+		if key in {'id_field', 'grids', 'agdict'}:
+			object.__setattr__(self, key, value)
+		else:
+			super().__setattr__(key, value)
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row] = {...}`. Add or update row in all connected grids.'
 		# if user does not specify id value in `val`, set it to the key
@@ -258,7 +268,7 @@ class _AgRows(BoxDict):
 			val[self.id_field] = key
 		if key != val[self.id_field]:
 			print(f'Warning: key {key} does not match id_field value {val[self.id_field]}')
-		if self.hasattr('agdict'):  # if the rows are being initialized, skip this
+		if hasattr(self, 'agdict'):  # if the rows are being initialized, skip this
 			for grid in self.grids():
 				grid.run_grid_method('applyTransaction', {'add': [val]})
 		super().__setitem__(key, val)
@@ -276,24 +286,30 @@ class _AgRows(BoxDict):
 			grid.run_grid_method('applyTransaction', {'remove': [self[key]]})
 		super().__delitem__(key)
 
+	def __box_config(*args, **kwargs):
+		print(args, kwargs)
+		return super().__box_config(*args, **kwargs) | {'test': 123}
+
 	def values(self) -> list[dict]:  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [dict(val) for val in super().values()]
-	def _do_convert(self, val: Any, **_) -> Any:  # pylint: disable=arguments-differ
-		if isinstance(val, (list, tuple)):
-			return {row[self.id_field]: row for row in super()._do_convert(val)}
-		if isinstance(val, dict) and not isinstance(val, _AgRow):
-			return _AgRow(val, self, self.grids)
-		return val
-class _AgRow(BoxDict):
-	_protected_keys = BoxDict._protected_keys | {'agrows', 'grids'}  # noqa: SLF001
-	def __init__(self, _map: dict, agrows: _AgRows, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
-		super().__init__(_map, _create=True)
-		self.grids = grids  # this being set indicates that grid has been initialised
-		self.agrows = agrows
+class _AgRow(Box):
+	# _protected_keys = BoxDict._protected_keys | {'agrows', 'grids'}  # noqa: SLF001
+	# def __init__(self, _map: dict, agrows: _AgRows, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
+	def __init__(self, row, agrows, grids, **kwargs) -> None:
+		print(kwargs)
+		super().__init__()
+		self._box_config['grids'] = self.grids = grids  # this being set indicates that grid has been initialised
+		self._box_config['agrows'] = self.agrows = agrows
+		self.update(row)
+	def __setattr__(self, key, value) -> None:
+		if key in {'grids', 'agrows'}:
+			object.__setattr__(self, key, value)
+		else:
+			super().__setattr__(key, value)
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row][field] = value`. Set field in all connected grids.'
 		super().__setitem__(key, val)
-		if self.hasattr('grids'):  # if the row is being initialized, skip this
+		if hasattr(self, 'grids'):  # if the row is being initialized, skip this
 			for grid in self.grids():
 				grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, val)
 	def __delitem__(self, key: Any) -> None:
@@ -301,9 +317,6 @@ class _AgRow(BoxDict):
 		for grid in self.grids():
 			grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, None)
 		super().__delitem__(key)
-
-	def _create(self):
-		return _AgRow({}, self.agrows, self.grids)
 # TODO:
 #  - make sync from grid to AgDict
 #  - test with complex objects, https://nicegui.io/documentation/aggrid#ag_grid_with_complex_objects
