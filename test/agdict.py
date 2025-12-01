@@ -61,7 +61,7 @@ def main():
 		if test_counter == 1:
 			agdict.rows.Apple.price = 99
 		elif test_counter == 2:
-			agdict.rows.Carrot.price += 1
+			agdict.rows.Carrot.price += 9
 		elif test_counter == 3:
 			agdict.rows += {'product': 'pineapple', 'price': 2.5}
 		elif test_counter == 4:
@@ -71,6 +71,15 @@ def main():
 		elif test_counter == 6:
 			del agdict.rows.orange
 		elif test_counter == 7:
+			df = pd.DataFrame([
+				{'category': 'Fruit', 'product': 'Apple', 'price': 0},
+				{'category': 'Fruit', 'product': 'Banana', 'price': 0},
+				{'category': 'Fruit', 'product': 'Pear', 'price': 0},
+				{'category': 'Vegetable', 'product': 'Carrot', 'price': 0},
+				{'category': 'Vegetable', 'product': 'Broccoli', 'price': 0},
+			])
+			agdict.from_pandas(df)
+		elif test_counter == 8:
 			# todo: this reloads the grid
 			agdict.on
 			agdict.classes
@@ -110,16 +119,6 @@ def resetish():
 		{'category': 'Vegetable', 'product': 'Carrot', 'price': 0.7},
 		{'category': 'Vegetable', 'product': 'Broccoli', 'price': 1.1},
 	]
-
-def tmp2():
-	df = pd.DataFrame([
-		{'category': 'Fruit', 'product': 'Apple', 'price': 0},
-		{'category': 'Fruit', 'product': 'Banana', 'price': 0},
-		{'category': 'Fruit', 'product': 'Pear', 'price': 0},
-		{'category': 'Vegetable', 'product': 'Carrot', 'price': 0},
-		{'category': 'Vegetable', 'product': 'Broccoli', 'price': 0},
-	])
-	agdict.from_pandas(df)
 
 
 # agdict = utils.aggrid.AgDict(

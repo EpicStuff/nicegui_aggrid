@@ -1,9 +1,8 @@
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Self, overload
 
-from epicstuff import BoxDict, Dict
+from epicstuff import Box
 from nicegui import ui, events
-from box import Box
 
 
 class AgDict:
@@ -25,10 +24,10 @@ class AgDict:
 		:param create_grid: If True, create a new NiceGUI aggrid instance during initialization.
 		:param loading: Number of loading skeleton rows to show when no rows are provided.
 		'''
-		options = Dict(options, _create=True)
+		options = Box(options, default_box=True)
 		if grid:
 			# merge grid.options with option, options taking precedence
-			options: Dict = Dict(grid.options | options, _create=True)
+			options: Box = Box(grid.options | options, default_box=True)
 		# if cols not already set, get them from the grid
 		# # if columns, override options
 		if columns:
@@ -62,13 +61,13 @@ class AgDict:
 
 	# properties
 	@property
-	def options(self) -> Dict:
+	def options(self) -> Box:
 		return self._options
 	@options.setter
 	def options(self, val: dict) -> None:
 		# convert to Dict if not already
-		if not isinstance(val, Dict):
-			val = Dict(val, _create=True)
+		if not isinstance(val, Box):
+			val = Box(val, default_box=True)
 		# overwrite rowData if rows are set
 		if self.rows:
 			val.rowData = self.rows.values()
@@ -223,44 +222,31 @@ class AgDict:
 		self.cols = [{'field': str(col)} for col in df.columns]
 		self.rows = df.to_dicts()  # pyright: ignore[reportAttributeAccessIssue]
 
-class _AgCols(BoxDict):
-	_protected_keys = BoxDict._protected_keys | {'agdict', 'grids', ''}  # noqa: SLF001
-
-	# @overload
-	# def __new__(cls, cols: list | None, agdict: AgDict, **_) -> Self: ...  # pyright: ignore[reportNoOverloadImplementation, reportInconsistentOverload] pylint: disable=signature-differs
+class _AgCols(
+	Box,
+	extra_configs={'agdict'},
+	protected_attrs={'grids', 'cols'},
+):
 	def __init__(self, cols: list | None, agdict: AgDict, **_) -> None:
+		super().__init__(default_box=True)
 		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
-		super().__init__(_convert=True, _create=True)
 		self.cols = cols or []
 		self.agdict = agdict  # this being set indicates that grid has been initialised
-	def _do_convert(self, val: Any, **_) -> Any:  # pylint: disable=arguments-differ
-		if isinstance(val, dict):
-			return Dict(val)
-		if isinstance(val, list):
-			val = list(val)
-		return super()._do_convert(val)
+
 	def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [] if self.cols is None else [dict(val) for val in self.cols]
 
-class _AgRows(Box):
-	# _protected_keys = BoxDict._protected_keys | {'agdict', 'grids', 'id_field'}  # noqa: SLF001
-
-	# @overload
-	# def __new__(cls, _map: list | tuple | None, agdict: AgDict, id_field: str) -> Self: ...  # pyright: ignore[reportNoOverloadImplementation, reportInconsistentOverload] pylint: disable=signature-differs
+class _AgRows(
+	Box,
+	extra_configs={'agrows', 'grids'},
+	protected_attrs={'id_field', 'agdict'},
+):
 	def __init__(self, rows: list | tuple | None, agdict: AgDict, id_field: str) -> None:
-		rows = rows or []
+		super().__init__(box_class=_AgRow, agrows=self, default_box=True)
 		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
 		self.id_field = id_field
-		super().__init__(box_class=_AgRow)
-		self._box_config['grids'] = self.grids
-		self._box_config['agrows'] = self
-		self.update({row[id_field]: row for row in rows})
+		self.update({row[id_field]: row for row in (rows or [])})
 		self.agdict = agdict  # this being set indicates that grid has been initialised
-	def __setattr__(self, key, value) -> None:
-		if key in {'id_field', 'grids', 'agdict'}:
-			object.__setattr__(self, key, value)
-		else:
-			super().__setattr__(key, value)
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row] = {...}`. Add or update row in all connected grids.'
 		# if user does not specify id value in `val`, set it to the key
@@ -286,26 +272,18 @@ class _AgRows(Box):
 			grid.run_grid_method('applyTransaction', {'remove': [self[key]]})
 		super().__delitem__(key)
 
-	def __box_config(*args, **kwargs):
-		print(args, kwargs)
-		return super().__box_config(*args, **kwargs) | {'test': 123}
-
 	def values(self) -> list[dict]:  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [dict(val) for val in super().values()]
-class _AgRow(Box):
-	# _protected_keys = BoxDict._protected_keys | {'agrows', 'grids'}  # noqa: SLF001
-	# def __init__(self, _map: dict, agrows: _AgRows, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
-	def __init__(self, row, agrows, grids, **kwargs) -> None:
-		print(kwargs)
-		super().__init__()
-		self._box_config['grids'] = self.grids = grids  # this being set indicates that grid has been initialised
-		self._box_config['agrows'] = self.agrows = agrows
+class _AgRow(
+	Box,
+	extra_configs={'agrows', 'grids'},
+):
+	def __init__(self, row: dict, agrows: _AgRows, grids: Callable[[], Iterator[ui.aggrid]], **kwargs) -> None:
+		super().__init__(**kwargs)
+		assert self._box_config['default_box'] is True
+		self.agrows = agrows
+		self.grids = grids
 		self.update(row)
-	def __setattr__(self, key, value) -> None:
-		if key in {'grids', 'agrows'}:
-			object.__setattr__(self, key, value)
-		else:
-			super().__setattr__(key, value)
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row][field] = value`. Set field in all connected grids.'
 		super().__setitem__(key, val)
@@ -317,6 +295,7 @@ class _AgRow(Box):
 		for grid in self.grids():
 			grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, None)
 		super().__delitem__(key)
+
 # TODO:
 #  - make sync from grid to AgDict
 #  - test with complex objects, https://nicegui.io/documentation/aggrid#ag_grid_with_complex_objects

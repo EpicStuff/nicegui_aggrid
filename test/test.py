@@ -1,7 +1,3 @@
-from typing import Any, Dict, List, Literal, Tuple, Type
-from epicstuff import Dict, run_install_trace, run_fix_import
-from box import Box
-
 from nicegui_aggrid import AgDict
 
 aggrid = AgDict(
@@ -25,3 +21,11 @@ aggrid = AgDict(
 	],
 	id_field='product',
 )
+
+# from epicstuff import Box
+
+# class test(Box, extra_configs={'a', 'b'}):
+# 	pass
+
+# t = test({'x': 1, 'y': 2})
+# pass
