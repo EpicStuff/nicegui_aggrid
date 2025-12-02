@@ -4,12 +4,13 @@ from typing import Any, Self, overload
 from epicstuff import Box
 from nicegui import ui, events
 
+
 class AgDict:
 	'''A Dict that can be "connected" to multiple aggrids such that changes to this Dict will be updated in all connected aggrids without the use of aggrid.update().'''
 
 	def __init__(
 		self,
-		options: dict | None = None, columns: list | tuple | None = None, rows: list | tuple | None = None,
+		options: dict | None = None, columns: list | tuple | None = None, rows: list | tuple | None = None,  # pyright: ignore[reportRedeclaration]
 		id_field: str | None = None, grid: ui.aggrid | None = None, create_grid: bool = False, loading: int = 1,
 		**kwargs: Any,
 	) -> None:
@@ -23,10 +24,10 @@ class AgDict:
 		:param create_grid: If True, create a new NiceGUI aggrid instance during initialization.
 		:param loading: Number of loading skeleton rows to show when no rows are provided.
 		'''
-		options = Box(options, default_box=True)
+		options: Box = Box(options, default_box=True)
 		if grid:
 			# merge grid.options with option, options taking precedence
-			options: Box = Box(grid.options | options, default_box=True)
+			options = Box(grid.options | options, default_box=True)
 		# if cols not already set, get them from the grid
 		# # if columns, override options
 		if columns:
@@ -46,7 +47,10 @@ class AgDict:
 		if ':getRowId' in options: ...  # TODO: maybe extract id_field from existing getRowId
 		# enable loading skeletons if needed
 		if loading:
-			options.defaultColDef |= {':cellRendererSelector': "params => params.value === '__loading' ? {component: 'agSkeletonCellRenderer'} : null"}
+			options.defaultColDef[':cellRendererSelector'] = "params => params.value === '__loading' ? {component: 'agSkeletonCellRenderer'} : null"
+			if not rows:
+				print('Info: cellDataType being set to False since loading')
+				options.defaultColDef.cellDataType = False
 
 		super().__init__()
 
@@ -90,12 +94,12 @@ class AgDict:
 				grid.run_grid_method('setGridOption', ':getRowId', f'params => params.data.{val}')
 			# reinitialize the rows with the new id_field
 			self.rows = self.rows.values()
-			# TODO: if no id feild provided, generate random/add number "column"
 	@property
 	def cols(self) -> '_AgCols':
 		return self._cols
 	@cols.setter
 	def cols(self, val: '_AgCols | list | tuple | None') -> None:
+		# okay, i have no idea whats happening here
 		if val is None:
 			new_cols: _AgCols | None = None
 			col_defs: list[dict] = []
@@ -120,7 +124,7 @@ class AgDict:
 			if val is None and self._loading:
 				if self.cols is None:
 					raise ValueError('Columns must be set to use loading.')
-				val = [dict.fromkeys(self.cols, '__loading')] * self._loading
+				val = [dict.fromkeys(self.cols, '__loading') for _ in range(self._loading)]
 			val = _AgRows(val, self, self.id_field)  # pyright: ignore[reportArgumentType]
 			for grid in self.iter_grids():
 				grid.run_grid_method('setGridOption', 'rowData', val.values())
@@ -138,7 +142,7 @@ class AgDict:
 		if val:
 			# if theres rows, set id
 			if self.rows:
-				getRowId = f'params => params.data.{self.id_field}'
+				getRowId = f'params => params.data.{self.id_field}'  # noqa: N806
 				if (':getRowId' in val.options and val.options[':getRowId'] != getRowId) or (':getRowId' in self.options and self.options[':getRowId'] != getRowId):
 					print('Warning: Overwriting existing :getRowId.')
 				self.options[':getRowId'] = getRowId
@@ -237,7 +241,7 @@ class _AgCols(
 		super().__init__(agdict=agdict, default_box=True, box_class=_AgCol)
 		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
 		self.update({col['field']: col for col in (cols or [])})
-		# self.agdict = agdict  # this being set indicates that grid has been initialised
+		self.agdict = agdict  # this being set indicates that grid has been initialised
 
 	def values(self) -> list[dict]:  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [dict(val) for val in super().values()]
