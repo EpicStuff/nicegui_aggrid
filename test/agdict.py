@@ -79,6 +79,7 @@ def main():
 			agdict.on('test').classes()
 		elif test_counter == 9:
 			agdict2.rows[0].age = 111
+			agdict2.rows[1].name = 'ZZZ'
 
 	print('test1')
 	ui.button('test', on_click=test)
