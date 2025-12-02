@@ -260,7 +260,7 @@ class _AgRows(
 					print('Warning: Overwriting existing __index field.')
 				row['__index'] = i
 		self.update({row[id_field]: row for row in (rows or [])})
-		# self.agdict = agdict  # this being set indicates that grid has been initialised
+		self.agdict = agdict  # this being set indicates that grid has been initialised
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row] = {...}`. Add or update row in all connected grids.'
 		# if user does not specify id value in `val`, set it to the key
