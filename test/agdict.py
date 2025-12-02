@@ -42,13 +42,6 @@ def main():
 	grid = ui.aggrid({}, auto_size_columns=False).classes('h-128')
 
 	agdict.grid = grid
-	# print(agdict.grids)
-	# ui.button('test2', on_click=agdict.grids[0].update)
-	# print(agdict.grids[0].options)
-
-	# grid.options['columnDefs'] = agdict.cols
-	# grid.options['rowData'] = agdict.rows.values()
-	# grid.update()
 
 	test_counter = 0
 
@@ -84,6 +77,8 @@ def main():
 			agdict.on
 			agdict.classes
 			agdict.on('test').classes()
+		elif test_counter == 9:
+			agdict2.rows[0].age = 111
 
 	print('test1')
 	ui.button('test', on_click=test)
@@ -97,18 +92,8 @@ def main():
 			{'headerName': 'Parent', 'field': 'parent', 'hide': True},
 		],
 		'rowSelection': {'mode': 'multiRow'},
-	}), id_field='name')
-
-	rows = [
-		{'name': 'Alice', 'age': 18, 'parent': 'David'},
-		{'name': 'Bob', 'age': 21, 'parent': 'Eve'},
-		{'name': 'Carol', 'age': 42, 'parent': 'Frank'},
-	]
-
-	print(agdict2.rows)
-	print(agdict2.cols)
-
-	# ui.timer(1, tmp2)
+	}), loading=5)
+	pass
 
 
 def resetish():
