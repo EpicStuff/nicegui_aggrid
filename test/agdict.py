@@ -42,13 +42,6 @@ def main():
 	grid = ui.aggrid({}, auto_size_columns=False).classes('h-128')
 
 	agdict.grid = grid
-	# print(agdict.grids)
-	# ui.button('test2', on_click=agdict.grids[0].update)
-	# print(agdict.grids[0].options)
-
-	# grid.options['columnDefs'] = agdict.cols
-	# grid.options['rowData'] = agdict.rows.values()
-	# grid.update()
 
 	test_counter = 0
 
@@ -61,7 +54,7 @@ def main():
 		if test_counter == 1:
 			agdict.rows.Apple.price = 99
 		elif test_counter == 2:
-			agdict.rows.Carrot.price += 1
+			agdict.rows.Carrot.price += 9
 		elif test_counter == 3:
 			agdict.rows += {'product': 'pineapple', 'price': 2.5}
 		elif test_counter == 4:
@@ -71,10 +64,21 @@ def main():
 		elif test_counter == 6:
 			del agdict.rows.orange
 		elif test_counter == 7:
+			df = pd.DataFrame([
+				{'category': 'Fruit', 'product': 'Apple', 'price': 0},
+				{'category': 'Fruit', 'product': 'Banana', 'price': 0},
+				{'category': 'Fruit', 'product': 'Pear', 'price': 0},
+				{'category': 'Vegetable', 'product': 'Carrot', 'price': 0},
+				{'category': 'Vegetable', 'product': 'Broccoli', 'price': 0},
+			])
+			agdict.from_pandas(df)
+		elif test_counter == 8:
 			# todo: this reloads the grid
 			agdict.on
 			agdict.classes
 			agdict.on('test').classes()
+		elif test_counter == 9:
+			agdict2.rows[0].age = 111
 
 	print('test1')
 	ui.button('test', on_click=test)
@@ -88,18 +92,8 @@ def main():
 			{'headerName': 'Parent', 'field': 'parent', 'hide': True},
 		],
 		'rowSelection': {'mode': 'multiRow'},
-	}), id_field='name')
-
-	rows = [
-		{'name': 'Alice', 'age': 18, 'parent': 'David'},
-		{'name': 'Bob', 'age': 21, 'parent': 'Eve'},
-		{'name': 'Carol', 'age': 42, 'parent': 'Frank'},
-	]
-
-	print(agdict2.rows)
-	print(agdict2.cols)
-
-	# ui.timer(1, tmp2)
+	}), loading=5)
+	pass
 
 
 def resetish():
@@ -110,16 +104,6 @@ def resetish():
 		{'category': 'Vegetable', 'product': 'Carrot', 'price': 0.7},
 		{'category': 'Vegetable', 'product': 'Broccoli', 'price': 1.1},
 	]
-
-def tmp2():
-	df = pd.DataFrame([
-		{'category': 'Fruit', 'product': 'Apple', 'price': 0},
-		{'category': 'Fruit', 'product': 'Banana', 'price': 0},
-		{'category': 'Fruit', 'product': 'Pear', 'price': 0},
-		{'category': 'Vegetable', 'product': 'Carrot', 'price': 0},
-		{'category': 'Vegetable', 'product': 'Broccoli', 'price': 0},
-	])
-	agdict.from_pandas(df)
 
 
 # agdict = utils.aggrid.AgDict(

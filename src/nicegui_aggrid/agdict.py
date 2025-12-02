@@ -81,26 +81,36 @@ class AgDict:
 		return self._id_field
 	@id_field.setter
 	def id_field(self, val: str | None) -> None:
+		if val is None:
+			val = '__index'
 		self._id_field = val
 		if hasattr(self, 'rows'):
 			# set the new id_field
+			self.rows.id_field = val
 			for grid in self.iter_grids():
 				grid.run_grid_method('setGridOption', ':getRowId', f'params => params.data.{val}')
 			# reinitialize the rows with the new id_field
-			self.rows = self.rows.values()  # pyright: ignore[reportAttributeAccessIssue,reportOptionalMemberAccess]
+			self.rows = self.rows.values()
 			# TODO: if no id feild provided, generate random/add number "column"
 	@property
-	def cols(self) -> '_AgCols | None':
+	def cols(self) -> '_AgCols':
 		return self._cols
 	@cols.setter
 	def cols(self, val: '_AgCols | list | tuple | None') -> None:
-		# TODO
-		if hasattr(self, '_cols'):
-			print('Warning: changing cols after initialisation has not been implemented yet.')
-			return
-		if val is not None:
-			val = _AgCols(val, self)  # pyright: ignore[reportArgumentType]
-		self._cols = val
+		# okay, i have no idea whats happening here
+		if val is None:
+			new_cols: _AgCols | None = None
+			col_defs: list[dict] = []
+		else:
+			col_defs = val.values() if isinstance(val, _AgCols) else list(val)
+			new_cols = _AgCols(col_defs, self)  # pyright: ignore[reportArgumentType]
+		already_initialised = hasattr(self, '_cols')
+		self._cols = new_cols
+		if hasattr(self, '_options'):
+			self._options.columnDefs = col_defs
+		if already_initialised:
+			for grid in self.iter_grids():
+				grid.run_grid_method('setGridOption', 'columnDefs', col_defs)
 	@property
 	def rows(self) -> '_AgRows':
 		return self._rows
@@ -108,13 +118,11 @@ class AgDict:
 	def rows(self, val: '_AgRows | list | tuple | None') -> None:
 		# if new rows or if called by __setitem__ with key id_field
 		if not isinstance(val, _AgRows):
-			if self.id_field is None:
-				raise ValueError('id_field must be specified before setting rows.')
 			# if no rows and loading enabled, create loading rows
 			if val is None and self._loading:
 				if self.cols is None:
 					raise ValueError('Columns must be set to use loading.')
-				val = [{col.field: '__loading' for col in self.cols.cols}] * self._loading
+				val = [dict.fromkeys(self.cols, '__loading')] * self._loading
 			val = _AgRows(val, self, self.id_field)  # pyright: ignore[reportArgumentType]
 			for grid in self.iter_grids():
 				grid.run_grid_method('setGridOption', 'rowData', val.values())
@@ -240,16 +248,24 @@ class _AgCols(BoxDict):
 		return super()._do_convert(val)
 	def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [] if self.cols is None else [dict(val) for val in self.cols]
+class _AgCol(Dict): ...
 
 class _AgRows(BoxDict):
 	_protected_keys = BoxDict._protected_keys | {'agdict', 'grids', 'id_field'}  # noqa: SLF001
 
-	# @overload
-	# def __new__(cls, _map: list | tuple | None, agdict: AgDict, id_field: str) -> Self: ...  # pyright: ignore[reportNoOverloadImplementation, reportInconsistentOverload] pylint: disable=signature-differs
-	def __init__(self, _map: list | tuple | None, agdict: AgDict, id_field: str) -> None:
+	def __init__(self, rows: list | tuple | None, agdict: AgDict, id_field: str) -> None:
+		'Gets called by `AgDict.__init__` or user doing `agdict.rows = [...]`.'
 		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
 		self.id_field = id_field
-		super().__init__(self._do_convert(_map), _convert=True, _create=True)
+
+		if id_field == '__index':
+			for i, row in enumerate(rows or []):
+				if '__index' in row:
+					print('Warning: Overwriting existing __index field.')
+				row['__index'] = i
+		self.update({row[id_field]: row for row in (rows or [])})
+
+		super().__init__(self._do_convert(rows), _convert=True, _create=True)
 		self.agdict = agdict  # this being set indicates that grid has been initialised
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row] = {...}`. Add or update row in all connected grids.'
@@ -258,7 +274,7 @@ class _AgRows(BoxDict):
 			val[self.id_field] = key
 		if key != val[self.id_field]:
 			print(f'Warning: key {key} does not match id_field value {val[self.id_field]}')
-		if self.hasattr('agdict'):  # if the rows are being initialized, skip this
+		if 'agdict' in self.__dict__:  # if the rows are being initialized, skip this
 			for grid in self.grids():
 				grid.run_grid_method('applyTransaction', {'add': [val]})
 		super().__setitem__(key, val)
@@ -276,6 +292,15 @@ class _AgRows(BoxDict):
 			grid.run_grid_method('applyTransaction', {'remove': [self[key]]})
 		super().__delitem__(key)
 
+	@property
+	def id_field(self) -> str:
+		return self._id_field
+	@id_field.setter
+	def id_field(self, val: str) -> None:
+		if '_id_field' in self.__dict__:
+			print('Warning: Changing id_field after rows have been initialised has not been implemented.')
+		self._id_field = val
+
 	def values(self) -> list[dict]:  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [dict(val) for val in super().values()]
 	def _do_convert(self, val: Any, **_) -> Any:  # pylint: disable=arguments-differ
@@ -286,14 +311,14 @@ class _AgRows(BoxDict):
 		return val
 class _AgRow(BoxDict):
 	_protected_keys = BoxDict._protected_keys | {'agrows', 'grids'}  # noqa: SLF001
-	def __init__(self, _map: dict, agrows: _AgRows, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
-		super().__init__(_map, _create=True)
+	def __init__(self, row: dict, agrows: _AgRows, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
+		super().__init__(row, _create=True)
 		self.grids = grids  # this being set indicates that grid has been initialised
 		self.agrows = agrows
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row][field] = value`. Set field in all connected grids.'
 		super().__setitem__(key, val)
-		if self.hasattr('grids'):  # if the row is being initialized, skip this
+		if 'grids' in self.__dict__:  # if the row is being initialized, skip this
 			for grid in self.grids():
 				grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, val)
 	def __delitem__(self, key: Any) -> None:
