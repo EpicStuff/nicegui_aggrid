@@ -9,14 +9,14 @@ classifiers = [
 "Programming Language :: Python :: 3",
 "Programming Language :: Python :: 3.13",
 ]
-dependencies = ["epicstuff", "nicegui"]
+dependencies = ["epicstuff>=0.7.1", "nicegui"]
 description = "Utilities for NiceGUI's aggrid"
 keywords = ["aggrid", "nicegui"]
 license = {file = "LICENSE"}
 name = "nicegui_aggrid"
 readme = "README.md"
 requires-python = ">=3.13"
-version = "0.0.2"
+version = "0.1.0"
 
 [project.urls]
 Homepage = "https://github.com/EpicStuff/nicegui_aggrid"

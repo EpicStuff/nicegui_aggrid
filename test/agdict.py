@@ -93,6 +93,7 @@ def main():
 			{'headerName': 'Parent', 'field': 'parent', 'hide': True},
 		],
 		'rowSelection': {'mode': 'multiRow'},
+		'defaultColDef': {},
 	}), loading=5)
 	pass
 

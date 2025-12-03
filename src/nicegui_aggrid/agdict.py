@@ -99,20 +99,11 @@ class AgDict:
 		return self._cols
 	@cols.setter
 	def cols(self, val: '_AgCols | list | tuple | None') -> None:
-		# okay, i have no idea whats happening here
-		if val is None:
-			new_cols: _AgCols | None = None
-			col_defs: list[dict] = []
-		else:
-			col_defs = val.values() if isinstance(val, _AgCols) else list(val)
-			new_cols = _AgCols(col_defs, self)  # pyright: ignore[reportArgumentType]
-		already_initialised = hasattr(self, '_cols')
-		self._cols = new_cols
-		if hasattr(self, '_options'):
-			self._options.columnDefs = col_defs
-		if already_initialised:
-			for grid in self.iter_grids():
-				grid.run_grid_method('setGridOption', 'columnDefs', col_defs)
+		assert not isinstance(val, _AgCols), 'look into this'
+		val = _AgCols(val, self)
+		for grid in self.iter_grids():
+			grid.run_grid_method('setGridOption', 'columnDefs', val.values())
+		self._cols = val
 	@property
 	def rows(self) -> '_AgRows':
 		return self._rows
@@ -234,19 +225,18 @@ class AgDict:
 
 class _AgCols(Dict, protected_attrs={'agdict', 'grids'}):  # @overload
 	# def __new__(cls, cols: list | None, agdict: AgDict, **_) -> Self: ...  # pyright: ignore[reportNoOverloadImplementation, reportInconsistentOverload] pylint: disable=signature-differs
-	def __init__(self, cols: list | None, agdict: AgDict, **_) -> None:
+	def __init__(self, cols: list | tuple | None, agdict: AgDict, **_) -> None:
 		self.grids: Callable = agdict.iter_grids
 		super().__init__({col['field']: col for col in (cols or [])}, _convert=True, _create=True, _converter=_AgCol)
 		self.agdict = agdict  # this being set indicates that grid has been initialised
 
 	def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
-		return [] if self.cols is None else [dict(val) for val in self.cols]
+		return [dict(val) for val in super().values()]
 class _AgCol(Dict): ...
 
 class _AgRows(Dict, protected_attrs={'agdict', 'grids', 'id_field', '_id_field'}):
 	def __init__(self, rows: list | tuple | None, agdict: AgDict, id_field: str) -> None:
 		'Gets called by `AgDict.__init__` or user doing `agdict.rows = [...]`.'
-		print('initing: ', self)
 		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
 		self.id_field = id_field
 
@@ -254,7 +244,7 @@ class _AgRows(Dict, protected_attrs={'agdict', 'grids', 'id_field', '_id_field'}
 			for i, row in enumerate(rows or []):
 				if '__index' in row:
 					print('Warning: Overwriting existing __index field.')
-				rows[i]['__index'] = i
+				row['__index'] = i
 		self.update({row[id_field]: row for row in (rows or [])})
 
 		super().__init__({row[self.id_field]: row for row in (rows or [])}, _convert=True, _create=True, _converter=wrap(_AgRow, agrows=self, grids=self.grids))
