@@ -229,10 +229,11 @@ class _AgCols(Dict, protected_attrs={'agdict', 'grids'}):  # @overload
 		self.grids: Callable = agdict.iter_grids
 		super().__init__({col['field']: col for col in (cols or [])}, _convert=True, _create=True, _converter=_AgCol)
 		self.agdict = agdict  # this being set indicates that grid has been initialised
-
+	def _warn(): ...
 	def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [dict(val) for val in super().values()]
-class _AgCol(Dict): ...
+class _AgCol(Dict):
+	def _warn(): ...
 
 class _AgRows(Dict, protected_attrs={'agdict', 'grids', 'id_field', '_id_field'}):
 	def __init__(self, rows: list | tuple | None, agdict: AgDict, id_field: str) -> None:
@@ -283,6 +284,7 @@ class _AgRows(Dict, protected_attrs={'agdict', 'grids', 'id_field', '_id_field'}
 			print('Warning: Changing id_field after rows have been initialised has not been implemented.')
 		self._id_field = val
 
+	def _warn(): ...
 	def values(self) -> list[dict]:  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [dict(val) for val in super().values()]
 class _AgRow(Dict, protected_attrs={'agrows', 'grids'}):
@@ -302,6 +304,7 @@ class _AgRow(Dict, protected_attrs={'agrows', 'grids'}):
 			grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, None)
 		super().__delitem__(key)
 
+	def _warn(): ...
 	def _create(self) -> Self:
 		return _AgRow({}, self.agrows, self.grids)
 # TODO:
