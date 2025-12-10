@@ -10,10 +10,12 @@ def tmp(grid=None):
 	print('test-.5')
 	return AgDict(
 		options={
-			'defaultColDef': {'flex': 1, 'sortable': True, 'filter': True, 'resizable': True},
+			'defaultColDef': {'flex': 1, 'sortable': True, 'filter': True, 'resizable': True, 'editable': True},
 			'groupDisplayType': 'groupRows',
 			'groupDefaultExpanded': -1,  # expand all groups
 			'animateRows': True,
+			'rowSelection': {'mode': 'multiRow'},
+			'cellSelection': True,
 		},
 		columns=[
 			{'field': 'category', 'rowGroup': True, 'hide': True},
@@ -39,14 +41,14 @@ def main():
 	enterprise(None, None, '0000-0000-0000-0000')
 	print('test0')
 
-	grid = ui.aggrid({}, auto_size_columns=False).classes('h-128')
-
-	agdict.grid = grid
-
+	agdict.grid = ui.aggrid({}, auto_size_columns=False).classes('h-128')
 	test_counter = 0
 
+	agdict.rows.agdict.grids[0].options  # make sure this isnt a recursion error
+
+	#TODO: look into test up to 5 then reload then test up to 5 leading to 2 orange rows
 	@rich_try
-	def test():
+	async def test():
 		nonlocal test_counter
 		test_counter += 1
 		print('running test:', test_counter)
@@ -80,6 +82,12 @@ def main():
 		elif test_counter == 9:
 			agdict2.rows[0].age = 111
 			agdict2.rows[1].name = 'ZZZ'
+		elif test_counter == 10:
+			agdict.rows.Banana.price = 1234
+		elif test_counter == 11:
+			agdict.rows.Banana.test = 1234  # todo: i think this should just print a warning instead of erroring
+		elif test_counter == 12:
+			agdict.rows.test.price = 1234  # todo: this should probably create a new row instead of erroring
 
 	print('test1')
 	ui.button('test', on_click=test)

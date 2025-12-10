@@ -1,3 +1,5 @@
+import asyncio
+from abc import ABC
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Self, overload
 
@@ -7,6 +9,8 @@ from nicegui import ui, events
 
 class AgDict:
 	'''A Dict that can be "connected" to multiple aggrids such that changes to this Dict will be updated in all connected aggrids without the use of aggrid.update().'''
+
+	loading_sentinel = '__loading'
 
 	def __init__(
 		self,
@@ -29,32 +33,26 @@ class AgDict:
 			# merge grid.options with option, options taking precedence
 			options = Dict(grid.options | options, _create=True)
 		# if cols not already set, get them from the grid
-		# # if columns, override options
-		if columns:
-			options.columnDefs = columns
-		# # else, get columns from options
-		elif options.get('columnDefs'):
+		if not columns and options.get('columnDefs'):
 			columns = options.columnDefs
 		# if rows not already set, get them from the grid
-		# # if rows, override options
-		if rows:
-			options.rowData = rows
-		# # else, get rows from options
-		elif options.get('rowData'):
+		if not rows and options.get('rowData'):
 			rows = options.rowData
-
 		# make aggrid use the id_field
 		if ':getRowId' in options: ...  # TODO: maybe extract id_field from existing getRowId
 		# enable loading skeletons if needed
 		if loading:
-			options.defaultColDef[':cellRendererSelector'] = "params => params.value === '__loading' ? {component: 'agSkeletonCellRenderer'} : null"
-			if not rows:
-				print('Info: cellDataType being set to False since loading')
-				options.defaultColDef.cellDataType = False
+			# ToDo: make loading optionaly cell or row based
+			options.defaultColDef[':cellRendererSelector'] = f"p => p.data?.[p.colDef.field] === '{self.loading_sentinel}' ? {{component: 'agSkeletonCellRenderer'}} : null"
+			options.defaultColDef[':valueGetter'] = f"p => p.data?.[p.colDef.field] === '{self.loading_sentinel}' ? null : p.data?.[p.colDef.field]"
+			# if not rows:
+			# 	print('Info: cellDataType being set to False since loading')
+			# 	options.defaultColDef.cellDataType = False
 
 		super().__init__()
 
 		self.grids = []
+		self.edit_queue = Dict()
 		self._loading = loading
 		self.id_field = id_field
 		self.cols = columns  # gets auto converted to _AgCols
@@ -84,16 +82,18 @@ class AgDict:
 		return self._id_field
 	@id_field.setter
 	def id_field(self, val: str | None) -> None:
-		if val is None:
-			val = '__index'
 		self._id_field = val
+		if val is None:
+			return
+		# if rows is set, update its id_field
 		if hasattr(self, 'rows'):
 			# set the new id_field
 			self.rows.id_field = val
-			for grid in self.iter_grids():
-				grid.run_grid_method('setGridOption', ':getRowId', f'params => params.data.{val}')
-			# reinitialize the rows with the new id_field
+			# recreate all rows with the new id_field
 			self.rows = self.rows.values()
+		# if there are grids, update their getRowId option
+		for grid in self.iter_grids():
+			grid.run_grid_method('setGridOption', ':getRowId', f'params => params.data.{val}')
 	@property
 	def cols(self) -> '_AgCols':
 		return self._cols
@@ -116,10 +116,16 @@ class AgDict:
 				if self.cols is None:
 					raise ValueError('Columns must be set to use loading.')
 				val = [dict.fromkeys(self.cols, '__loading') for _ in range(self._loading)]
+			# if id_field is still not set, set it to __index
+			if self.id_field is None:
+				print('Info: id_field being set to __index since rows are being set.')
+				self.id_field = '__index'
+			# create new _AgRows and update all connected grids
 			val = _AgRows(val, self, self.id_field)  # pyright: ignore[reportArgumentType]
 			for grid in self.iter_grids():
 				grid.run_grid_method('setGridOption', 'rowData', val.values())
 		# else, called by __iadd__ from _AgRows, grid allready updated, do nothing extra
+		# finally, set self._rows
 		self._rows = val
 	@property
 	def grid(self) -> Any:
@@ -132,16 +138,44 @@ class AgDict:
 	def grid(self, val: ui.aggrid | None) -> None:
 		if val:
 			# if theres rows, set id
-			if self.rows:
+			if self.id_field:
 				getRowId = f'params => params.data.{self.id_field}'  # noqa: N806
-				if (':getRowId' in val.options and val.options[':getRowId'] != getRowId) or (':getRowId' in self.options and self.options[':getRowId'] != getRowId):
+				# if getRowId in grid.options and does not match new getRowId, warn
+				if ':getRowId' in val.options and val.options[':getRowId'] != getRowId:
 					print('Warning: Overwriting existing :getRowId.')
-				self.options[':getRowId'] = getRowId
+				# if getRowId exists and matches new getRowId, continue
+				if ':getRowId' in self.options and self.options[':getRowId'] != getRowId:
+					pass
+				# if getRowId does not exist, set it
+				else:
+					self.options[':getRowId'] = getRowId
 
-			self.grids.append(val)
-			val.options |= self.options
+			# update grid options with self.options, self.cols, and self.rows
+			val.options = Dict(val.options | self.options, columnDefs=self.cols.values(), rowData=self.rows.values())
+			# update the grid
 			val.update()
-			# TODO: think about/look into if options should be updated on change after this point
+			self.grids.append(val)
+			val.on('cellValueChanged', self.cell_edited)
+
+	def cell_edited(self, e: events.GenericEventArguments) -> None:
+		event = Dict(e.args, _convert=True)
+		row = event.rowId
+		col = event.colId
+		id = f'{row}.{col}'
+		if id in self.edit_queue:
+			edit = self.edit_queue[id]
+			# TODO: look into why sometimes event.oldValue != edit.old_value
+			tmp = edit.old_value if edit.old_value != self.loading_sentinel else None
+			if event.oldValue != tmp:
+				print(f'Warning: Inconsistent old value {event.oldValue} and {tmp} in edit queue.')
+				return
+			tmp = (edit.new_value if edit.new_value != self.loading_sentinel else None)
+			if event.newValue != tmp:
+				print(f'Warning: Inconsistent new value {event.newValue} and {tmp} in edit queue.')
+			del self.edit_queue[id]
+		else:
+			print(event)
+			self.rows[id][col] = event.newValue  # update AgDict and other connected grids
 
 	def iter_grids(self) -> Iterator[ui.aggrid]:
 		self.grids[:] = [g for g in self.grids if not g.is_deleted]
@@ -223,7 +257,7 @@ class AgDict:
 		self.cols = [{'field': str(col)} for col in df.columns]
 		self.rows = df.to_dicts()  # pyright: ignore[reportAttributeAccessIssue]
 
-class _AgCols(Dict, protected_attrs={'agdict', 'grids'}):  # @overload
+class _AgCols(Dict, ABC, protected_attrs={'agdict', 'grids'}):  # @overload
 	# def __new__(cls, cols: list | None, agdict: AgDict, **_) -> Self: ...  # pyright: ignore[reportNoOverloadImplementation, reportInconsistentOverload] pylint: disable=signature-differs
 	def __init__(self, cols: list | tuple | None, agdict: AgDict, **_) -> None:
 		self.grids: Callable = agdict.iter_grids
@@ -235,7 +269,11 @@ class _AgCols(Dict, protected_attrs={'agdict', 'grids'}):  # @overload
 class _AgCol(Dict):
 	def _warn(): ...
 
-class _AgRows(Dict, protected_attrs={'agdict', 'grids', 'id_field', '_id_field'}):
+
+_AgCols.register(_AgCol)
+
+
+class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_field', 'edit_queue'}):
 	def __init__(self, rows: list | tuple | None, agdict: AgDict, id_field: str) -> None:
 		'Gets called by `AgDict.__init__` or user doing `agdict.rows = [...]`.'
 		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
@@ -245,11 +283,19 @@ class _AgRows(Dict, protected_attrs={'agdict', 'grids', 'id_field', '_id_field'}
 			for i, row in enumerate(rows or []):
 				if '__index' in row:
 					print('Warning: Overwriting existing __index field.')
-				row['__index'] = i
+				row['__index'] = str(i)
 		self.update({row[id_field]: row for row in (rows or [])})
 
-		super().__init__({row[self.id_field]: row for row in (rows or [])}, _convert=True, _create=True, _converter=wrap(_AgRow, agrows=self, grids=self.grids))
+		super().__init__(
+			{row[self.id_field]: row for row in (rows or [])},
+			_convert=True, _create=True,
+			_converter=wrap(_AgRow, agrows=self, id_field=id_field, edit_queue=agdict.edit_queue, grids=self.grids),
+		)
 		self.agdict = agdict  # this being set indicates that grid has been initialised
+	def __getitem__(self, key: Any) -> Any:
+		if isinstance(key, int):
+			key = str(key)
+		return super().__getitem__(key)
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row] = {...}`. Add or update row in all connected grids.'
 		# if user does not specify id value in `val`, set it to the key
@@ -287,26 +333,56 @@ class _AgRows(Dict, protected_attrs={'agdict', 'grids', 'id_field', '_id_field'}
 	def _warn(): ...
 	def values(self) -> list[dict]:  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [dict(val) for val in super().values()]
-class _AgRow(Dict, protected_attrs={'agrows', 'grids'}):
-	def __init__(self, row: dict, agrows: _AgRows, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
+class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id'}):
+	def __init__(self, row: dict, agrows: _AgRows, id_field: str, edit_queue: Dict, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
 		super().__init__(row, _create=True)
-		self.grids = grids  # this being set indicates that grid has been initialised
 		self.agrows = agrows
+		self.id = row[id_field]
+		self.edit_queue = edit_queue
+		self.grids = grids  # this being set indicates that grid has been initialised
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row][field] = value`. Set field in all connected grids.'
+		async def update_grid(grid: ui.aggrid) -> None:
+			response = await grid.run_row_method(self.id, 'setDataValue', key, val)
+			if response is False:
+				print(f'Info: Failed to set value for row id {self.id}, field {key} to {val}.\n\tProbably column does not exist or cell value was the same.')
+			elif response is None:
+				print(f'Info: Failed to set value for row id {self.id}, field {key} to {val}.\n\tProbably row does not exist.')
+
+		# if value is not changed
+		if key in self and self[key] == val:
+			return
+
+		if 'grids' in self.__dict__:
+			self.edit_queue[f'{self.id}.{key}'] = Dict(id=self.id, old_value=self[key], new_value=val)
 		super().__setitem__(key, val)
+
 		if 'grids' in self.__dict__:  # if the row is being initialized, skip this
 			for grid in self.grids():
-				grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, val)
+				asyncio.get_running_loop().create_task(update_grid(grid))
 	def __delitem__(self, key: Any) -> None:
 		'For when user does `del agdict.rows[row][field]`. Delete field from all connected grids.'
+		async def update_grid(grid: ui.aggrid) -> None:
+			response = await grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, None)
+			if response is False:
+				print(f'Warning: Failed to delete value for row id {self.id}, field {key}.\n\tProbably column does not exist.')
+			elif response is None:
+				print(f'Warning: Failed to delete value for row id {self.id}, field {key}.\n\tProbably row does not exist.')
+
+		if 'grids' in self.__dict__:
+			self.edit_queue[f'{self.id}.{key}'] = Dict(id=self.id, old_value=self[key], new_value=None)
+
 		for grid in self.grids():
-			grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, None)
+			asyncio.get_running_loop().create_task(update_grid(grid))
 		super().__delitem__(key)
 
 	def _warn(): ...
 	def _create(self) -> Self:
-		return _AgRow({}, self.agrows, self.grids)
+		return _AgRow({}, self.agrows, self.agrows.id_field, self.grids)
+
+
+_AgRows.register(_AgRow)
+
 # TODO:
 #  - make sync from grid to AgDict
 #  - test with complex objects, https://nicegui.io/documentation/aggrid#ag_grid_with_complex_objects
