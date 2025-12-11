@@ -46,7 +46,7 @@ def main():
 
 	agdict.rows.agdict.grids[0].options  # make sure this isnt a recursion error
 
-	#TODO: look into test up to 5 then reload then test up to 5 leading to 2 orange rows
+	# TODO: look into test up to 5 then reload then test up to 5 leading to 2 orange rows
 	@rich_try
 	async def test():
 		nonlocal test_counter
@@ -55,16 +55,22 @@ def main():
 
 		if test_counter == 1:
 			agdict.rows.Apple.price = 99
+			await agdict.check_grids_sync()
 		elif test_counter == 2:
 			agdict.rows.Carrot.price += 9
+			await agdict.check_grids_sync()
 		elif test_counter == 3:
 			agdict.rows += {'product': 'pineapple', 'price': 2.5}
+			await agdict.check_grids_sync()
 		elif test_counter == 4:
 			agdict.rows.orange = {'price': 50, 'test': 'testing'}
+			await agdict.check_grids_sync()
 		elif test_counter == 5:
 			del agdict.rows.orange.price
+			await agdict.check_grids_sync()
 		elif test_counter == 6:
 			del agdict.rows.orange
+			await agdict.check_grids_sync()
 		elif test_counter == 7:
 			df = pd.DataFrame([
 				{'category': 'Fruit', 'product': 'Apple', 'price': 0},
@@ -74,20 +80,24 @@ def main():
 				{'category': 'Vegetable', 'product': 'Broccoli', 'price': 0},
 			])
 			agdict.from_pandas(df)
+			await agdict.check_grids_sync()
 		elif test_counter == 8:
 			# todo: this reloads the grid
-			agdict.on
-			agdict.classes
 			agdict.on('test').classes()
+			await agdict.check_grids_sync()
 		elif test_counter == 9:
 			agdict2.rows[0].age = 111
 			agdict2.rows[1].name = 'ZZZ'
+			await agdict.check_grids_sync()
 		elif test_counter == 10:
 			agdict.rows.Banana.price = 1234
+			await agdict.check_grids_sync()
 		elif test_counter == 11:
 			agdict.rows.Banana.test = 1234  # todo: i think this should just print a warning instead of erroring
+			await agdict.check_grids_sync()
 		elif test_counter == 12:
 			agdict.rows.test.price = 1234  # todo: this should probably create a new row instead of erroring
+			await agdict.check_grids_sync()
 
 	print('test1')
 	ui.button('test', on_click=test)
@@ -106,7 +116,7 @@ def main():
 	pass
 
 
-def resetish():
+async def resetish():
 	agdict.rows = [
 		{'category': 'Fruit', 'product': 'Apple', 'price': 1.2},
 		{'category': 'Fruit', 'product': 'Banana', 'price': 0.9},
@@ -114,6 +124,7 @@ def resetish():
 		{'category': 'Vegetable', 'product': 'Carrot', 'price': 0.7},
 		{'category': 'Vegetable', 'product': 'Broccoli', 'price': 1.1},
 	]
+	await agdict.check_grids_sync()
 
 
 # agdict = utils.aggrid.AgDict(

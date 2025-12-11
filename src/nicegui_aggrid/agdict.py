@@ -150,7 +150,7 @@ class AgDict:
 				else:
 					self.options[':getRowId'] = getRowId
 
-			# update grid options with self.options, self.cols, and self.rows
+			# update grid options with self.options, self.cols, and self.rows, TODO: update self.options on self.cols or self.rows change
 			val.options = Dict(val.options | self.options, columnDefs=self.cols.values(), rowData=self.rows.values())
 			# update the grid
 			val.update()
@@ -158,7 +158,7 @@ class AgDict:
 			val.on('cellValueChanged', self.cell_edited)
 
 	def cell_edited(self, e: events.GenericEventArguments) -> None:
-		event = Dict(e.args, _convert=True)
+		event = Dict(e.args)
 		row = event.rowId
 		col = event.colId
 		id = f'{row}.{col}'
@@ -168,18 +168,28 @@ class AgDict:
 			tmp = edit.old_value if edit.old_value != self.loading_sentinel else None
 			if event.oldValue != tmp:
 				print(f'Warning: Inconsistent old value {event.oldValue} and {tmp} in edit queue.')
-				return
 			tmp = (edit.new_value if edit.new_value != self.loading_sentinel else None)
 			if event.newValue != tmp:
 				print(f'Warning: Inconsistent new value {event.newValue} and {tmp} in edit queue.')
+				return
 			del self.edit_queue[id]
 		else:
 			print(event)
-			self.rows[id][col] = event.newValue  # update AgDict and other connected grids
+			self.rows[row][col] = event.newValue  # update AgDict and other connected grids
 
 	def iter_grids(self) -> Iterator[ui.aggrid]:
 		self.grids[:] = [g for g in self.grids if not g.is_deleted]
 		yield from self.grids
+	async def check_grids_sync(self) -> None:
+		'''Check that the value in cells of all connected grids is the same as in self.'''
+		# wait to allow grid to process edit
+		await asyncio.sleep(0.1)
+		# check each grid
+		for grid in self.iter_grids():
+			# check rows
+			data = await grid.run_grid_method('getGridOption', 'rowData')
+			assert data == self.rows.values(), 'Grid rows not in sync with AgDict rows.'
+			# TODO: maybe check other options
 
 	# nicegui aggrid methods
 	@overload
@@ -209,6 +219,8 @@ class AgDict:
 	def update(self) -> None:
 		'''Update all connected grids.'''
 		for grid in self.iter_grids():
+			# update grid options with self.options, self.cols, and self.rows, TODO: update self.options on self.cols or self.rows change
+			grid.options = Dict(grid.options | self.options, columnDefs=self.cols.values(), rowData=self.rows.values())
 			grid.update()
 	def from_pandas(self, df: 'pd.DataFrame') -> None:  # pyright: ignore[reportUndefinedVariable] # noqa: F821
 		'''Replace rows and columns from a Pandas DataFrame.
@@ -261,7 +273,7 @@ class _AgCols(Dict, ABC, protected_attrs={'agdict', 'grids'}):  # @overload
 	# def __new__(cls, cols: list | None, agdict: AgDict, **_) -> Self: ...  # pyright: ignore[reportNoOverloadImplementation, reportInconsistentOverload] pylint: disable=signature-differs
 	def __init__(self, cols: list | tuple | None, agdict: AgDict, **_) -> None:
 		self.grids: Callable = agdict.iter_grids
-		super().__init__({col['field']: col for col in (cols or [])}, _convert=True, _create=True, _converter=_AgCol)
+		super().__init__({col['field']: col for col in (cols or [])}, _create=True, _converter=_AgCol)
 		self.agdict = agdict  # this being set indicates that grid has been initialised
 	def _warn(): ...
 	def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -287,8 +299,7 @@ class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_fi
 		self.update({row[id_field]: row for row in (rows or [])})
 
 		super().__init__(
-			{row[self.id_field]: row for row in (rows or [])},
-			_convert=True, _create=True,
+			{row[self.id_field]: row for row in (rows or [])}, _create=True,
 			_converter=wrap(_AgRow, agrows=self, id_field=id_field, edit_queue=agdict.edit_queue, grids=self.grids),
 		)
 		self.agdict = agdict  # this being set indicates that grid has been initialised
@@ -333,7 +344,7 @@ class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_fi
 	def _warn(): ...
 	def values(self) -> list[dict]:  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [dict(val) for val in super().values()]
-class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id'}):
+class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
 	def __init__(self, row: dict, agrows: _AgRows, id_field: str, edit_queue: Dict, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
 		super().__init__(row, _create=True)
 		self.agrows = agrows
@@ -350,7 +361,7 @@ class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id'}):
 				print(f'Info: Failed to set value for row id {self.id}, field {key} to {val}.\n\tProbably row does not exist.')
 
 		# if value is not changed
-		if key in self and self[key] == val:
+		if key in self and dict.__getitem__(self, key) == val:
 			return
 
 		if 'grids' in self.__dict__:
