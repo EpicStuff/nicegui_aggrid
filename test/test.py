@@ -23,10 +23,13 @@
 # )
 
 from epicstuff import Dict
+from collections import UserDict
 
-class test(Dict):
-	pass
+a = Dict(a=1, _convert=True)
+# a = {'a': 1}
+# a = UserDict(a=1)
+b = Dict(b=2, _convert=True, _create=True)
 
+c = a | b
 
-t = test({'x': 1, 'y': 2})
-pass
+print(c)

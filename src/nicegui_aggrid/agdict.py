@@ -3,7 +3,7 @@ from abc import ABC
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Self, overload
 
-from epicstuff import Dict, wrap
+from epicstuff import Dict, wrap, console
 from nicegui import ui, events
 
 
@@ -28,10 +28,10 @@ class AgDict:
 		:param create_grid: If True, create a new NiceGUI aggrid instance during initialization.
 		:param loading: Number of loading skeleton rows to show when no rows are provided.
 		'''
-		options: Dict = Dict(options, _create=True)
+		options: Dict = Dict(options, _convert=True, _create=True)
 		if grid:
 			# merge grid.options with option, options taking precedence
-			options = Dict(grid.options | options, _create=True)
+			options = options.__ror__(grid.options)
 		# if cols not already set, get them from the grid
 		if not columns and options.get('columnDefs'):
 			columns = options.columnDefs
@@ -68,7 +68,7 @@ class AgDict:
 	def options(self, val: dict) -> None:
 		# convert to Dict if not already
 		if not isinstance(val, Dict):
-			val = Dict(val, _create=True)
+			val = Dict(val, _convert=True, _create=True)
 		# overwrite rowData if rows are set
 		if self.rows:
 			val.rowData = self.rows.values()
@@ -118,7 +118,7 @@ class AgDict:
 				val = [dict.fromkeys(self.cols, '__loading') for _ in range(self._loading)]
 			# if id_field is still not set, set it to __index
 			if self.id_field is None:
-				print('Info: id_field being set to __index since rows are being set.')
+				console.print('[bright_black]Debug: id_field being set to __index since rows are being set.[/]')
 				self.id_field = '__index'
 			# create new _AgRows and update all connected grids
 			val = _AgRows(val, self, self.id_field)  # pyright: ignore[reportArgumentType]
@@ -151,7 +151,8 @@ class AgDict:
 					self.options[':getRowId'] = getRowId
 
 			# update grid options with self.options, self.cols, and self.rows, TODO: update self.options on self.cols or self.rows change
-			val.options = Dict(val.options | self.options, columnDefs=self.cols.values(), rowData=self.rows.values())
+			val.options = val.options | self.options | {'columnDefs': self.cols.values(), 'rowData': self.rows.values()}
+
 			# update the grid
 			val.update()
 			self.grids.append(val)
@@ -220,7 +221,7 @@ class AgDict:
 		'''Update all connected grids.'''
 		for grid in self.iter_grids():
 			# update grid options with self.options, self.cols, and self.rows, TODO: update self.options on self.cols or self.rows change
-			grid.options = Dict(grid.options | self.options, columnDefs=self.cols.values(), rowData=self.rows.values())
+			grid.options = grid.options | self.options | {'columnDefs': self.cols.values(), 'rowData': self.rows.values()}
 			grid.update()
 	def from_pandas(self, df: 'pd.DataFrame') -> None:  # pyright: ignore[reportUndefinedVariable] # noqa: F821
 		'''Replace rows and columns from a Pandas DataFrame.
@@ -354,7 +355,11 @@ class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row][field] = value`. Set field in all connected grids.'
 		async def update_grid(grid: ui.aggrid) -> None:
-			response = await grid.run_row_method(self.id, 'setDataValue', key, val)
+			try:
+				response = await grid.run_row_method(self.id, 'setDataValue', key, val)
+			except TimeoutError:
+				console.print(f'[grey]Debug: Timeout while setting value for row id {self.id}, field {key} to {val}.')
+				return
 			if response is False:
 				print(f'Info: Failed to set value for row id {self.id}, field {key} to {val}.\n\tProbably column does not exist or cell value was the same.')
 			elif response is None:
@@ -374,7 +379,10 @@ class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
 	def __delitem__(self, key: Any) -> None:
 		'For when user does `del agdict.rows[row][field]`. Delete field from all connected grids.'
 		async def update_grid(grid: ui.aggrid) -> None:
-			response = await grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, None)
+			try:
+				response = await grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, None)
+			except TimeoutError:
+				print(f'Debug: Timeout while deleting row {self.id} field {key}.')
 			if response is False:
 				print(f'Warning: Failed to delete value for row id {self.id}, field {key}.\n\tProbably column does not exist.')
 			elif response is None:
