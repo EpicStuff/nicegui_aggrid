@@ -3,7 +3,7 @@ import pandas as pd
 from epicstuff import rich_try, run_install_trace
 from nicegui import app, ui
 
-from nicegui_aggrid import enterprise, AgDict
+from nicegui_aggrid import AgDict, enterprise
 
 
 def tmp(grid=None):

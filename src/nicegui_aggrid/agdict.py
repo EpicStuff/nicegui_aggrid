@@ -3,18 +3,18 @@ from abc import ABC
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Self, overload
 
-from epicstuff import Dict, wrap, console
-from nicegui import ui, events
+from epicstuff import Dict, console, wrap
+from nicegui import events, ui
 
 
 class AgDict:
-	'''A Dict that can be "connected" to multiple aggrids such that changes to this Dict will be updated in all connected aggrids without the use of aggrid.update().'''
+	'A Dict that can be "connected" to multiple aggrids such that changes to this Dict will be updated in all connected aggrids without the use of aggrid.update().'
 
 	loading_sentinel = '__loading'
 
 	def __init__(
 		self,
-		options: dict | None = None, columns: list | tuple | None = None, rows: list | tuple | None = None,  # pyright: ignore[reportRedeclaration]
+		options: dict | None = None, columns: Sequence | None = None, rows: Sequence | None = None,  # pyright: ignore[reportRedeclaration]
 		id_field: str | None = None, grid: ui.aggrid | None = None, create_grid: bool = False, loading: int = 1,
 		**kwargs: Any,
 	) -> None:
@@ -42,7 +42,7 @@ class AgDict:
 		if ':getRowId' in options: ...  # TODO: maybe extract id_field from existing getRowId
 		# enable loading skeletons if needed
 		if loading:
-			# ToDo: make loading optionaly cell or row based
+			# TODO: make loading optionaly cell or row based
 			options.defaultColDef[':cellRendererSelector'] = f"p => p.data?.[p.colDef.field] === '{self.loading_sentinel}' ? {{component: 'agSkeletonCellRenderer'}} : null"
 			options.defaultColDef[':valueGetter'] = f"p => p.data?.[p.colDef.field] === '{self.loading_sentinel}' ? null : p.data?.[p.colDef.field]"
 			# if not rows:
@@ -98,7 +98,7 @@ class AgDict:
 	def cols(self) -> '_AgCols':
 		return self._cols
 	@cols.setter
-	def cols(self, val: '_AgCols | list | tuple | None') -> None:
+	def cols(self, val: '_AgCols | Sequence | None') -> None:
 		assert not isinstance(val, _AgCols), 'look into this'
 		val = _AgCols(val, self)
 		for grid in self.iter_grids():
@@ -108,7 +108,7 @@ class AgDict:
 	def rows(self) -> '_AgRows':
 		return self._rows
 	@rows.setter
-	def rows(self, val: '_AgRows | list | tuple | None') -> None:
+	def rows(self, val: '_AgRows | Sequence | None') -> None:
 		# if new rows or if called by __setitem__ with key id_field
 		if not isinstance(val, _AgRows):
 			# if no rows and loading enabled, create loading rows
@@ -182,7 +182,7 @@ class AgDict:
 		self.grids[:] = [g for g in self.grids if not g.is_deleted]
 		yield from self.grids
 	async def check_grids_sync(self) -> None:
-		'''Check that the value in cells of all connected grids is the same as in self.'''
+		'Check that the value in cells of all connected grids is the same as in self.'
 		# wait to allow grid to process edit
 		await asyncio.sleep(0.1)
 		# check each grid
@@ -218,7 +218,7 @@ class AgDict:
 			grid.on(*args, **kwargs)
 		return self
 	def update(self) -> None:
-		'''Update all connected grids.'''
+		'Update all connected grids.'
 		for grid in self.iter_grids():
 			# update grid options with self.options, self.cols, and self.rows, TODO: update self.options on self.cols or self.rows change
 			grid.options = grid.options | self.options | {'columnDefs': self.cols.values(), 'rowData': self.rows.values()}
@@ -274,23 +274,23 @@ class AgDict:
 
 class _AgCols(Dict, ABC, protected_attrs={'agdict', 'grids'}):  # @overload
 	# def __new__(cls, cols: list | None, agdict: AgDict, **_) -> Self: ...  # pyright: ignore[reportNoOverloadImplementation, reportInconsistentOverload] pylint: disable=signature-differs
-	def __init__(self, cols: list | tuple | None, agdict: AgDict, **_) -> None:
+	def __init__(self, cols: Sequence | None, agdict: AgDict, **_) -> None:
 		self.grids: Callable = agdict.iter_grids
 		super().__init__({col['field']: col for col in (cols or [])}, _create=True, _converter=_AgCol)
 		self.agdict = agdict  # this being set indicates that grid has been initialised
-	def _warn(): ...
-	def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+	def _warn() -> None: ...  # type: ignore
+	def values(self) -> list[dict[Any, Any]]:
 		return [dict(val) for val in super().values()]
 class _AgCol(Dict):
-	def _warn(): ...
+	def _warn() -> None: ...  # type: ignore
 
 
 _AgCols.register(_AgCol)
 
 
 class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_field', 'edit_queue'}):
-	def __init__(self, rows: list | tuple | None, agdict: AgDict, id_field: str) -> None:
-		'Gets called by `AgDict.__init__` or user doing `agdict.rows = [...]`.'
+	def __init__(self, rows: Sequence | None, agdict: AgDict, id_field: str) -> None:
+		'Gets called by `AgDict.__init__` or user doing `agdict.rows = [...]`.'  # noqa: D401
 		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
 		self.id_field = id_field
 
@@ -344,7 +344,7 @@ class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_fi
 			print('Warning: Changing id_field after rows have been initialised has not been implemented.')
 		self._id_field = val
 
-	def _warn(): ...
+	def _warn() -> None: ...  # type: ignore
 	def values(self) -> list[dict]:  # pyright: ignore[reportIncompatibleMethodOverride]
 		return [dict(val) for val in super().values()]
 class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
@@ -385,6 +385,7 @@ class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
 				response = await grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, None)
 			except TimeoutError:
 				print(f'Debug: Timeout while deleting row {self.id} field {key}.')
+				return
 			if response is False:
 				print(f'Warning: Failed to delete value for row id {self.id}, field {key}.\n\tProbably column does not exist.')
 			elif response is None:
@@ -397,9 +398,9 @@ class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
 			asyncio.get_running_loop().create_task(update_grid(grid))
 		super().__delitem__(key)
 
-	def _warn(): ...
+	def _warn() -> None: ...  # type: ignore
 	def _create(self) -> Self:
-		return _AgRow({}, self.agrows, self.agrows.id_field, self.grids)
+		return self.__class__({}, self.agrows, self.agrows.id_field, self.edit_queue, self.grids)
 
 
 _AgRows.register(_AgRow)
