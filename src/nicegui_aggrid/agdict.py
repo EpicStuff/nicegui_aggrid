@@ -223,7 +223,7 @@ class AgDict:
 			# update grid options with self.options, self.cols, and self.rows, TODO: update self.options on self.cols or self.rows change
 			grid.options = grid.options | self.options | {'columnDefs': self.cols.values(), 'rowData': self.rows.values()}
 			grid.update()
-	def from_pandas(self, df: 'pd.DataFrame') -> None:  # pyright: ignore[reportUndefinedVariable] # noqa: F821
+	def from_pandas(self, df: 'pd.DataFrame', overwrite_cols: bool = False) -> None:  # pyright: ignore[reportUndefinedVariable] # noqa: F821
 		'''Replace rows and columns from a Pandas DataFrame.
 
 		Note:
@@ -237,7 +237,7 @@ class AgDict:
 		'''
 		import pandas as pd  # noqa: PLC0415
 
-		def is_special_dtype(dtype) -> bool:
+		def is_special_dtype(dtype: Any) -> bool:
 			return (
 				pd.api.types.is_datetime64_any_dtype(dtype) or
 				pd.api.types.is_timedelta64_dtype(dtype) or
@@ -256,9 +256,10 @@ class AgDict:
 				'`df.columns = ["_".join(col) for col in df.columns.values]`.'  # noqa: COM812
 			)
 
-		self.cols = [{'field': str(col)} for col in df.columns]
+		if overwrite_cols:
+			self.cols = [{'field': str(col)} for col in df.columns]
 		self.rows = df.to_dict('records')  # pyright: ignore[reportAttributeAccessIssue]
-	def from_polars(self, df: 'pl.DataFrame') -> None:  # pyright: ignore[reportUndefinedVariable] # noqa: F821
+	def from_polars(self, df: 'pl.DataFrame', overwrite_cols: bool = False) -> None:  # pyright: ignore[reportUndefinedVariable] # noqa: F821
 		'''Create an AG Grid from a Polars DataFrame.
 
 		If the DataFrame contains non-UTF-8 datatypes, they will be converted to strings.
@@ -267,7 +268,8 @@ class AgDict:
 		:param df: Polars DataFrame
 
 		'''
-		self.cols = [{'field': str(col)} for col in df.columns]
+		if overwrite_cols:
+			self.cols = [{'field': str(col)} for col in df.columns]
 		self.rows = df.to_dicts()  # pyright: ignore[reportAttributeAccessIssue]
 
 class _AgCols(Dict, ABC, protected_attrs={'agdict', 'grids'}):  # @overload
