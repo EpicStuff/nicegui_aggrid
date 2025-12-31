@@ -20,10 +20,10 @@ class AgDict:
 	) -> None:
 		'''Initialize an AgDict instance.
 
-		:param options: Aggrid options, ~~will get passed to the aggrid on creation if aggrid's options are empty.~~ Overwrites aggrid's options.
-		:param columns: List or tuple of column definitions. What would normally be in options["columnDefs"]. Overwrites options.
-		:param rows: List or tuple of row data. What would normally be in options["rowData"]. Overwrites options.
-		:param id_field: The field to use as the unique identifier for rows.
+		:param options: Overwrites aggrid's options.
+		:param columns: Sequence of column definitions. What would normally be in options["columnDefs"]. Overwrites options.
+		:param rows: Sequence of row data. What would normally be in options["rowData"]. Overwrites options.
+		:param id_field: The field to use as the unique identifier for rows, leave blank to use __index.
 		:param grid: An optional NiceGUI aggrid instance to connect to this AgDict. Can be added latter with the `grid` attribute.
 		:param create_grid: If True, create a new NiceGUI aggrid instance during initialization.
 		:param loading: Number of loading skeleton rows to show when no rows are provided.
@@ -38,8 +38,9 @@ class AgDict:
 		# if rows not already set, get them from the grid
 		if not rows and options.get('rowData'):
 			rows = options.rowData
-		# make aggrid use the id_field
-		if ':getRowId' in options: ...  # TODO: maybe extract id_field from existing getRowId
+		# if id_field not set, get from options
+		if id_field is None and ':getRowId' in options:
+			id_field = options[':getRowId'].split('.')[-1]  # assumes format 'params => params.data.{id_field}'
 		# enable loading skeletons if needed
 		if loading:
 			# TODO: make loading optionaly cell or row based
@@ -56,14 +57,13 @@ class AgDict:
 		self._loading = loading
 		self.id_field = id_field
 		self.cols = columns  # gets auto converted to _AgCols
-		self.rows = rows  # gets auto converted to _AgRows  # pyright: ignore[reportAttributeAccessIssue]
+		self.rows = rows  # gets auto converted to _AgRows
 		self.options = options or {}  # note: does not sync with rows/cols, just gets overwritten
 		self.grid = grid or (ui.aggrid(self.options, **kwargs) if create_grid else None)
 
 	# properties
 	@property
-	def options(self) -> Dict:
-		return self._options
+	def options(self) -> Dict: return self._options
 	@options.setter
 	def options(self, val: dict) -> None:
 		# convert to Dict if not already
@@ -72,14 +72,15 @@ class AgDict:
 		# overwrite rowData if rows are set
 		if self.rows:
 			val.rowData = self.rows.values()
-		# maybe also do the same with cols
+		# overwrite columnDefs if cols are set
+		if self.cols:
+			val.columnDefs = self.cols.values()
 		# update self
 		self._options = val
 		for grid in self.iter_grids():
 			grid.run_grid_method('updateGridOptions', val)		# if changing id_field and rows is allready set
 	@property
-	def id_field(self) -> str | None:
-		return self._id_field
+	def id_field(self) -> str | None: return self._id_field
 	@id_field.setter
 	def id_field(self, val: str | None) -> None:
 		self._id_field = val
@@ -95,8 +96,7 @@ class AgDict:
 		for grid in self.iter_grids():
 			grid.run_grid_method('setGridOption', ':getRowId', f'params => params.data.{val}')
 	@property
-	def cols(self) -> '_AgCols':
-		return self._cols
+	def cols(self) -> '_AgCols': return self._cols
 	@cols.setter
 	def cols(self, val: '_AgCols | Sequence | None') -> None:
 		assert not isinstance(val, _AgCols), 'look into this'
@@ -105,8 +105,7 @@ class AgDict:
 			grid.run_grid_method('setGridOption', 'columnDefs', val.values())
 		self._cols = val
 	@property
-	def rows(self) -> '_AgRows':
-		return self._rows
+	def rows(self) -> '_AgRows': return self._rows
 	@rows.setter
 	def rows(self, val: '_AgRows | Sequence | None') -> None:
 		# if new rows or if called by __setitem__ with key id_field
@@ -159,10 +158,11 @@ class AgDict:
 			val.on('cellValueChanged', self.cell_edited)
 
 	def cell_edited(self, e: events.GenericEventArguments) -> None:
+		'Propergate client side edits to server side AgDict.'
 		event = Dict(e.args)
 		row = event.rowId
 		col = event.colId
-		id = f'{row}.{col}'
+		id = f'{row}.{col}'  # noqa: A001
 		if id in self.edit_queue:
 			edit = self.edit_queue[id]
 			# TODO: look into why sometimes event.oldValue != edit.old_value
@@ -179,10 +179,11 @@ class AgDict:
 			self.rows[row][col] = event.newValue  # update AgDict and other connected grids
 
 	def iter_grids(self) -> Iterator[ui.aggrid]:
+		'Iterate over all none deleted grids.'
 		self.grids[:] = [g for g in self.grids if not g.is_deleted]
 		yield from self.grids
 	async def check_grids_sync(self) -> None:
-		'Check that the value in cells of all connected grids is the same as in self.'
+		'Check that the value in cells of all connected grids is the same as in self/make sure that client and server are in sync.'
 		# wait to allow grid to process edit
 		await asyncio.sleep(0.1)
 		# check each grid
@@ -192,7 +193,7 @@ class AgDict:
 			assert data == self.rows.values(), 'Grid rows not in sync with AgDict rows.'
 			# TODO: maybe check other options
 
-	# nicegui aggrid methods
+	# nicegui aggrid methods, apply to all grids
 	@overload
 	def props(self, add: str | None = None, *, remove: str | None = None) -> Self: ...  # pyright: ignore[reportInconsistentOverload]
 	def props(self, *args: Any, **kwargs: Any) -> Self:
@@ -272,9 +273,11 @@ class AgDict:
 			self.cols = [{'field': str(col)} for col in df.columns]
 		self.rows = df.to_dicts()  # pyright: ignore[reportAttributeAccessIssue]
 
-class _AgCols(Dict, ABC, protected_attrs={'agdict', 'grids'}):  # @overload
-	# def __new__(cls, cols: list | None, agdict: AgDict, **_) -> Self: ...  # pyright: ignore[reportNoOverloadImplementation, reportInconsistentOverload] pylint: disable=signature-differs
+class _AgCols(Dict, ABC, protected_attrs={'agdict', 'grids'}):
+	'Temporary columns class.'
+
 	def __init__(self, cols: Sequence | None, agdict: AgDict, **_) -> None:
+		'Gets called by `AgDict.__init__` or user doing `agdict.cols = ...`.'  # noqa: D401
 		self.grids: Callable = agdict.iter_grids
 		super().__init__({col['field']: col for col in (cols or [])}, _create=True, _converter=_AgCol)
 		self.agdict = agdict  # this being set indicates that grid has been initialised
@@ -282,6 +285,8 @@ class _AgCols(Dict, ABC, protected_attrs={'agdict', 'grids'}):  # @overload
 	def values(self) -> list[dict[Any, Any]]:
 		return [dict(val) for val in super().values()]
 class _AgCol(Dict):
+	'Temporary column class.'
+
 	def _warn() -> None: ...  # type: ignore
 
 
@@ -294,6 +299,7 @@ class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_fi
 		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
 		self.id_field = id_field
 
+		# if id_field is __index, add __index field to each row
 		if id_field == '__index':
 			for i, row in enumerate(rows or []):
 				if '__index' in row:
@@ -307,6 +313,7 @@ class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_fi
 		)
 		self.agdict = agdict  # this being set indicates that grid has been initialised
 	def __getitem__(self, key: Any) -> Any:
+		'For when user does `agdict.rows[row]` with integer row, convert to str.'  # since aggrid row ids get auto converted to strings
 		if isinstance(key, int):
 			key = str(key)
 		return super().__getitem__(key)
@@ -336,8 +343,7 @@ class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_fi
 		super().__delitem__(key)
 
 	@property
-	def id_field(self) -> str:
-		return self._id_field
+	def id_field(self) -> str: return self._id_field
 	@id_field.setter
 	def id_field(self, val: str) -> None:
 		if '_id_field' in self.__dict__:
@@ -345,7 +351,7 @@ class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_fi
 		self._id_field = val
 
 	def _warn() -> None: ...  # type: ignore
-	def values(self) -> list[dict]:  # pyright: ignore[reportIncompatibleMethodOverride]
+	def values(self) -> list[dict]:
 		return [dict(val) for val in super().values()]
 class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
 	def __init__(self, row: dict, agrows: _AgRows, id_field: str, edit_queue: Dict, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
@@ -406,5 +412,4 @@ class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
 _AgRows.register(_AgRow)
 
 # TODO:
-#  - make sync from grid to AgDict
 #  - test with complex objects, https://nicegui.io/documentation/aggrid#ag_grid_with_complex_objects
