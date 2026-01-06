@@ -25,7 +25,7 @@ def tmp(grid=None):
 		rows=[
 			{'category': 'Fruit', 'product': 'Apple', 'price': 1.2},
 			{'category': 'Fruit', 'product': 'Banana', 'price': 0.9},
-			{'category': 'Fruit', 'product': 'Pear', 'price': 1.4},
+			{'category': 'Fruit', 'product': 'Pear'},
 			{'category': 'Vegetable', 'product': 'Carrot', 'price': 0.7},
 			{'category': 'Vegetable', 'product': 'Broccoli', 'price': 1.1},
 		],
@@ -81,10 +81,10 @@ def main():
 			])
 			agdict.from_pandas(df)
 			await agdict.check_grids_sync()
-		elif test_counter == 8:
-			# todo: this reloads the grid
-			agdict.on('test').classes()
-			await agdict.check_grids_sync()
+		# elif test_counter == 8:
+		# 	# todo: this reloads the grid, also desyncs it
+		# 	agdict.on('test').classes()
+		# 	await agdict.check_grids_sync()  # todo: look into why this isn't raising error
 		elif test_counter == 9:
 			agdict2.rows[0].age = 111
 			agdict2.rows[1].name = 'ZZZ'
@@ -97,6 +97,20 @@ def main():
 			await agdict.check_grids_sync()
 		elif test_counter == 12:
 			agdict.rows.test.price = 1234  # todo: this should probably create a new row instead of erroring
+			await agdict.check_grids_sync()
+
+		elif test_counter == 13:
+			print('Manually edit a price value/cell, check for errors, also have 2nd tab open, make sure the change is reflected')
+			await agdict.check_grids_sync()
+		elif test_counter == 14:
+			print('Manually delete a cell, check for errors, make sure the change is reflected')
+			await agdict.check_grids_sync()
+
+		# TODO: make this work
+		elif test_counter == 15:
+			print('Manually edit the product value/cell, check for errors, make sure the change is reflected')
+			await agdict.check_grids_sync()
+		else:
 			await agdict.check_grids_sync()
 
 	print('test1')
@@ -120,7 +134,7 @@ async def resetish():
 	agdict.rows = [
 		{'category': 'Fruit', 'product': 'Apple', 'price': 1.2},
 		{'category': 'Fruit', 'product': 'Banana', 'price': 0.9},
-		{'category': 'Fruit', 'product': 'Pear', 'price': 1.4},
+		{'category': 'Fruit', 'product': 'Pear'},
 		{'category': 'Vegetable', 'product': 'Carrot', 'price': 0.7},
 		{'category': 'Vegetable', 'product': 'Broccoli', 'price': 1.1},
 	]

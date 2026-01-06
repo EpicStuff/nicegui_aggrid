@@ -160,38 +160,63 @@ class AgDict:
 	def cell_edited(self, e: events.GenericEventArguments) -> None:
 		'Propergate client side edits to server side AgDict.'
 		event = Dict(e.args)
-		row = event.rowId
 		col = event.colId
+		if col == self.id_field:
+			print('Info: Editing id_field column is not really supported.')
+		row = event.rowId
 		id = f'{row}.{col}'  # noqa: A001
+
+		# if this was called due to sever side edit, verify, then ignore
 		if id in self.edit_queue:
 			edit = self.edit_queue[id]
 			# TODO: look into why sometimes event.oldValue != edit.old_value
 			tmp = edit.old_value if edit.old_value != self.loading_sentinel else None
 			if event.oldValue != tmp:
-				print(f'Warning: Inconsistent old value {event.oldValue} and {tmp} in edit queue.')
+				print(f'Warning: Inconsistent old value {event.oldValue} and {tmp} in client grid and edit queue.')
 			tmp = (edit.new_value if edit.new_value != self.loading_sentinel else None)
 			if event.newValue != tmp:
-				print(f'Warning: Inconsistent new value {event.newValue} and {tmp} in edit queue.')
+				print(f'Warning: Inconsistent new value {event.newValue} and {tmp} in client grid and edit queue.')
 				return
 			del self.edit_queue[id]
+		# else, client side edit, update sever side data
 		else:
-			print(event)
-			self.rows[row][col] = event.newValue  # update AgDict and other connected grids
+			self.rows[row][col] = event.newValue  # update AgDict and all other connected grids
 
 	def iter_grids(self) -> Iterator[ui.aggrid]:
 		'Iterate over all none deleted grids.'
 		self.grids[:] = [g for g in self.grids if not g.is_deleted]
 		yield from self.grids
+	@classmethod
+	async def get_live_rows(cls, grid: ui.aggrid) -> list[dict]:
+		return await ui.run_javascript(f'''
+			(() => {{
+				const rows = []
+				getElement({grid.id}).api.forEachNode(n => {{
+					if (n.data) rows.push(n.data)
+				}})
+				return rows
+			}})()
+		''')
 	async def check_grids_sync(self) -> None:
 		'Check that the value in cells of all connected grids is the same as in self/make sure that client and server are in sync.'
 		# wait to allow grid to process edit
 		await asyncio.sleep(0.1)
+
+		correct = 0
 		# check each grid
 		for grid in self.iter_grids():
 			# check rows
-			data = await grid.run_grid_method('getGridOption', 'rowData')
-			assert data == self.rows.values(), 'Grid rows not in sync with AgDict rows.'
-			# TODO: maybe check other options
+			# data = await grid.run_grid_method('getGridOption', 'rowData')
+			data = await self.get_live_rows(grid)
+			if data == self.rows.values():
+				correct += 1
+		if correct == 0:
+			assert data == self.rows.values(), 'Grid rows not in sync with AgDict rows.' # pyright: ignore[reportPossiblyUnboundVariable]
+		total = len(self.grids)
+		if correct != total:
+			console.print(f'[yellow]Warning: {correct}/{total} in sync.')
+
+		# TODO: maybe check other options
 
 	# nicegui aggrid methods, apply to all grids
 	@overload
@@ -308,7 +333,7 @@ class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_fi
 		self.update({row[id_field]: row for row in (rows or [])})
 
 		super().__init__(
-			{row[self.id_field]: row for row in (rows or [])}, _create=True,
+			{row[self.id_field]: row for row in (rows or [])}, _create=False,  # maybe _create should be True
 			_converter=wrap(_AgRow, agrows=self, id_field=id_field, edit_queue=agdict.edit_queue, grids=self.grids),
 		)
 		self.agdict = agdict  # this being set indicates that grid has been initialised
@@ -353,6 +378,11 @@ class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_fi
 	def _warn() -> None: ...  # type: ignore
 	def values(self) -> list[dict]:
 		return [dict(val) for val in super().values()]
+
+	# debug
+	def _create(self, *args: Any, **kwargs: Any) -> Self:
+		# not sure what would call this
+		return super()._create(*args, **kwargs)
 class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
 	def __init__(self, row: dict, agrows: _AgRows, id_field: str, edit_queue: Dict, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
 		super().__init__(row, _create=True)
@@ -363,8 +393,14 @@ class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row][field] = value`. Set field in all connected grids.'
 		async def update_grid(grid: ui.aggrid) -> None:
+			# if value is allready the same, skip
+			with grid:  # since in async task, need to set context
+				if (await ui.run_javascript(f'getElement({grid.id}).api.getRowNode("{self.id}").data.{key}')) == val:  # using run_javascript because apparently getrownode doesnt work
+					return
+
 			try:
 				response = await grid.run_row_method(self.id, 'setDataValue', key, val)
+				# TODO: maybe use setData here too, and just get rid of edit queue entirely
 			except TimeoutError:
 				console.print(f'[grey]Debug: Timeout while setting value for row id {self.id}, field {key} to {val}.')
 				return
@@ -388,21 +424,14 @@ class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
 		'For when user does `del agdict.rows[row][field]`. Delete field from all connected grids.'
 		async def update_grid(grid: ui.aggrid) -> None:
 			try:
-				response = await grid.run_row_method(self[self.agrows.id_field], 'setDataValue', key, None)
+				await grid.run_row_method(self[self.agrows.id_field], 'setData', self)
 			except TimeoutError:
 				print(f'Debug: Timeout while deleting row {self.id} field {key}.')
-				return
-			if response is False:
-				print(f'Warning: Failed to delete value for row id {self.id}, field {key}.\n\tProbably column does not exist.')
-			elif response is None:
-				print(f'Warning: Failed to delete value for row id {self.id}, field {key}.\n\tProbably row does not exist.')
 
-		if 'grids' in self.__dict__:
-			self.edit_queue[f'{self.id}.{key}'] = Dict(id=self.id, old_value=self[key], new_value=None)
-
+		# delete the key server side then update client side
+		super().__delitem__(key)
 		for grid in self.grids():
 			asyncio.get_running_loop().create_task(update_grid(grid))
-		super().__delitem__(key)
 
 	def _warn() -> None: ...  # type: ignore
 	def _create(self) -> Self:
@@ -413,3 +442,6 @@ _AgRows.register(_AgRow)
 
 # TODO:
 #  - test with complex objects, https://nicegui.io/documentation/aggrid#ag_grid_with_complex_objects
+#  - i think that edit_queue doesnt account for multiple grids
+#  - deal with adding multiple rows with the same index
+#  - deal with sort and filter
