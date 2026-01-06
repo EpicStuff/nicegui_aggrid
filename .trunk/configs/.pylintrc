@@ -32,3 +32,4 @@ disable=
 	W0603,
 	W0622,  # covered by ruff
 	W0718,  # covered by ruff
+	W0611,  # covered by ruff
