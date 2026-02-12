@@ -1,7 +1,7 @@
 # ruff: noqa
 import pandas as pd
 from epicstuff import rich_try, run_install_trace
-from nicegui import app, ui
+from nicegui import ui
 
 from nicegui_aggrid import AgDict, enterprise
 
@@ -105,8 +105,6 @@ def main():
 		elif test_counter == 14:
 			print('Manually delete a cell, check for errors, make sure the change is reflected')
 			await agdict.check_grids_sync()
-
-		# TODO: make this work
 		elif test_counter == 15:
 			print('Manually edit the product value/cell, check for errors, make sure the change is reflected')
 			await agdict.check_grids_sync()
@@ -158,7 +156,7 @@ async def maxtest():
 	agdict.from_pandas(data)
 
 print('test-1')
-ui.run(main, show=False, reload=False)
+ui.run(main, show=False, reload=False, reconnect_timeout=300)
 
 # TODO:
 # - test changing id_field

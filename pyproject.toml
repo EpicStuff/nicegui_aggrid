@@ -1,24 +1,24 @@
 [build-system]
-build-backend = "setuptools.build_meta"
-requires = ["setuptools>=61", "wheel"]
+	build-backend = "setuptools.build_meta"
+	requires = ["setuptools>=61", "wheel"]
 
 [project]
-authors = [{email = "EpicStuff@users.noreply.github.com", name = "EpicStuff"}]
-classifiers = [
-"Operating System :: OS Independent",
-"Programming Language :: Python :: 3",
-"Programming Language :: Python :: 3.13",
-]
-dependencies = ["epicstuff>=0.7.1", "nicegui"]
-description = "Utilities for NiceGUI's aggrid"
-keywords = ["aggrid", "nicegui"]
-license = {file = "LICENSE"}
-name = "nicegui_aggrid"
-readme = "README.md"
-requires-python = ">=3.13"
-version = "0.3.0"
+	authors = [{email = "EpicStuff@users.noreply.github.com", name = "EpicStuff"}]
+	classifiers = [
+		"Operating System :: OS Independent",
+		"Programming Language :: Python :: 3",
+		"Programming Language :: Python :: 3.13",
+	]
+	dependencies = ["epicstuff>=0.7.1", "nicegui"]
+	description = "Utilities for NiceGUI's aggrid"
+	keywords = ["aggrid", "nicegui"]
+	license = {file = "LICENSE"}
+	name = "nicegui_aggrid"
+	readme = "README.md"
+	requires-python = ">=3.13"
+	version = "0.3.1"
 
-[project.urls]
-Homepage = "https://github.com/EpicStuff/nicegui_aggrid"
-Issues = "https://github.com/EpicStuff/nicegui_aggrid/issues"
-Source = "https://github.com/EpicStuff/nicegui_aggrid"
+	[project.urls]
+		Homepage = "https://github.com/EpicStuff/nicegui_aggrid"
+		Issues = "https://github.com/EpicStuff/nicegui_aggrid/issues"
+		Source = "https://github.com/EpicStuff/nicegui_aggrid"

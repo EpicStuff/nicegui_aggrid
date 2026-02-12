@@ -16,6 +16,7 @@ class AgDict:
 		self,
 		options: dict | None = None, columns: Sequence | None = None, rows: Sequence | None = None,  # pyright: ignore[reportRedeclaration]
 		id_field: str | None = None, grid: ui.aggrid | None = None, create_grid: bool = False, loading: int = 1,
+		logging: int = 1,
 		**kwargs: Any,
 	) -> None:
 		'''Initialize an AgDict instance.
@@ -28,6 +29,7 @@ class AgDict:
 		:param create_grid: If True, create a new NiceGUI aggrid instance during initialization.
 		:param loading: Number of loading skeleton rows to show when no rows are provided.
 		'''
+		# create grid options
 		options: Dict = Dict(options, _convert=True, _create=True)
 		if grid:
 			# merge grid.options with option, options taking precedence
@@ -49,16 +51,24 @@ class AgDict:
 			# if not rows:
 			# 	print('Info: cellDataType being set to False since loading')
 			# 	options.defaultColDef.cellDataType = False
+		# enable clipboard copy without enterprise
+		if 'skip_clipboard_patch' in kwargs:
+			del kwargs['skip_clipboard_patch']
+		elif ':onCellKeyDown' not in options:
+			options[':onCellKeyDown'] = '''p => (p.event.ctrlKey || p.event.metaKey) && p.event.key === 'c' && (navigator.clipboard.writeText(String(p.value ?? '')), p.event.preventDefault())'''
+		else:  # :onCellKeyDown in options but skip_clipboard_patch not set
+			console.print('[yellow]Warning: Clipboard patch not applied since :onCellKeyDown already defined in options. Pass skip_clipboard_patch=None to disable this warning.')
 
 		super().__init__()
 
+		self.logging = logging  # 0: debug, 1: info, 2: warning, 3: error, 4: none
+
 		self.grids = []
-		self.edit_queue = Dict()
 		self._loading = loading
 		self.id_field = id_field
 		self.cols = columns  # gets auto converted to _AgCols
 		self.rows = rows  # gets auto converted to _AgRows
-		self.options = options or {}  # note: does not sync with rows/cols, just gets overwritten
+		self.options = options  # note: does not sync with rows/cols, just gets overwritten
 		self.grid = grid or (ui.aggrid(self.options, **kwargs) if create_grid else None)
 
 	# properties
@@ -117,7 +127,8 @@ class AgDict:
 				val = [dict.fromkeys(self.cols, '__loading') for _ in range(self._loading)]
 			# if id_field is still not set, set it to __index
 			if self.id_field is None:
-				console.print('[bright_black]Debug: id_field being set to __index since rows are being set.[/]')
+				if self.logging <= 0:
+					console.print('[bright_black]Debug: id_field being set to __index since rows are being set.[/]')
 				self.id_field = '__index'
 			# create new _AgRows and update all connected grids
 			val = _AgRows(val, self, self.id_field)  # pyright: ignore[reportArgumentType]
@@ -160,27 +171,15 @@ class AgDict:
 	def cell_edited(self, e: events.GenericEventArguments) -> None:
 		'Propergate client side edits to server side AgDict.'
 		event = Dict(e.args)
+
+		# if this event was not triggered by user edit
+		if event.source in ('setDataValue'):
+			return
+		# else, update sever side data
 		col = event.colId
 		if col == self.id_field:
 			print('Info: Editing id_field column is not really supported.')
-		row = event.rowId
-		id = f'{row}.{col}'  # noqa: A001
-
-		# if this was called due to sever side edit, verify, then ignore
-		if id in self.edit_queue:
-			edit = self.edit_queue[id]
-			# TODO: look into why sometimes event.oldValue != edit.old_value
-			tmp = edit.old_value if edit.old_value != self.loading_sentinel else None
-			if event.oldValue != tmp:
-				print(f'Warning: Inconsistent old value {event.oldValue} and {tmp} in client grid and edit queue.')
-			tmp = (edit.new_value if edit.new_value != self.loading_sentinel else None)
-			if event.newValue != tmp:
-				print(f'Warning: Inconsistent new value {event.newValue} and {tmp} in client grid and edit queue.')
-				return
-			del self.edit_queue[id]
-		# else, client side edit, update sever side data
-		else:
-			self.rows[row][col] = event.newValue  # update AgDict and all other connected grids
+		self.rows[event.rowId][col] = event.newValue  # update AgDict and all other connected grids
 
 	def iter_grids(self) -> Iterator[ui.aggrid]:
 		'Iterate over all none deleted grids.'
@@ -211,7 +210,7 @@ class AgDict:
 			if data == self.rows.values():
 				correct += 1
 		if correct == 0:
-			assert data == self.rows.values(), 'Grid rows not in sync with AgDict rows.' # pyright: ignore[reportPossiblyUnboundVariable]
+			assert data == self.rows.values(), 'Grid rows not in sync with AgDict rows.'  # pyright: ignore[reportPossiblyUnboundVariable]
 		total = len(self.grids)
 		if correct != total:
 			console.print(f'[yellow]Warning: {correct}/{total} in sync.')
@@ -318,7 +317,7 @@ class _AgCol(Dict):
 _AgCols.register(_AgCol)
 
 
-class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_field', 'edit_queue'}):
+class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_field'}):
 	def __init__(self, rows: Sequence | None, agdict: AgDict, id_field: str) -> None:
 		'Gets called by `AgDict.__init__` or user doing `agdict.rows = [...]`.'  # noqa: D401
 		self.grids: Callable[[], Iterator[ui.aggrid]] = agdict.iter_grids
@@ -334,7 +333,7 @@ class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_fi
 
 		super().__init__(
 			{row[self.id_field]: row for row in (rows or [])}, _create=False,  # maybe _create should be True
-			_converter=wrap(_AgRow, agrows=self, id_field=id_field, edit_queue=agdict.edit_queue, grids=self.grids),
+			_converter=wrap(_AgRow, agrows=self, id_field=id_field, grids=self.grids),
 		)
 		self.agdict = agdict  # this being set indicates that grid has been initialised
 	def __getitem__(self, key: Any) -> Any:
@@ -376,47 +375,54 @@ class _AgRows(Dict, ABC, protected_attrs={'agdict', 'grids', 'id_field', '_id_fi
 		self._id_field = val
 
 	def _warn() -> None: ...  # type: ignore
-	def values(self) -> list[dict]:
-		return [dict(val) for val in super().values()]
+	def values(self, _list: bool = True) -> list[dict]:
+		'Warning: Returns a copy when list = True.'
+		return [dict(val) for val in super().values()] if _list else super().values(False)
 
 	# debug
 	def _create(self, *args: Any, **kwargs: Any) -> Self:
 		# not sure what would call this
-		return super()._create(*args, **kwargs)
-class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
-	def __init__(self, row: dict, agrows: _AgRows, id_field: str, edit_queue: Dict, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
+		raise NotImplementedError('Look into what is calling this.')
+class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id'}):
+	def __init__(self, row: dict, agrows: _AgRows, id_field: str, grids: Callable[[], Iterator[ui.aggrid]]) -> None:
 		super().__init__(row, _create=True)
 		self.agrows = agrows
 		self.id = row[id_field]
-		self.edit_queue = edit_queue
 		self.grids = grids  # this being set indicates that grid has been initialised
 	def __setitem__(self, key: Any, val: Any) -> None:
 		'For when user does `agdict.rows[row][field] = value`. Set field in all connected grids.'
 		async def update_grid(grid: ui.aggrid) -> None:
-			# if value is allready the same, skip
+			# if value is already the same, skip
 			with grid:  # since in async task, need to set context
-				if (await ui.run_javascript(f'getElement({grid.id}).api.getRowNode("{self.id}").data.{key}')) == val:  # using run_javascript because apparently getrownode doesnt work
+				try:
+					# check if client side value is already the same
+					if (await ui.run_javascript(f'getElement({grid.id}).api.getRowNode("{self.id}").data.{key}', timeout=5)) == val:  # using run_javascript because apparently getrownode doesn't work
+						return
+				except TimeoutError:
+					console.print(f'[bright_black]Debug: Timeout while checking value for row id {self.id}, field {key}. Grid probably just nolonger exists.')
 					return
 
 			try:
-				response = await grid.run_row_method(self.id, 'setDataValue', key, val)
-				# TODO: maybe use setData here too, and just get rid of edit queue entirely
+				response = await grid.run_row_method(self.id, 'setDataValue', key, val, 'setDataValue', timeout=5)
 			except TimeoutError:
-				console.print(f'[grey]Debug: Timeout while setting value for row id {self.id}, field {key} to {val}.')
+				console.print(f'[bright_black]Debug: Timeout while setting value for row id {self.id}, field {key} to {val}.')
 				return
 			if response is False:
 				print(f'Info: Failed to set value for row id {self.id}, field {key} to {val}.\n\tProbably column does not exist or cell value was the same.')
 			elif response is None:
 				print(f'Info: Failed to set value for row id {self.id}, field {key} to {val}.\n\tProbably row does not exist.')
 
-		# if value is not changed
-		if key in self and dict.__getitem__(self, key) == val:
-			return
-
+		# if self is being initialized, skip this next bit
 		if 'grids' in self.__dict__:
-			self.edit_queue[f'{self.id}.{key}'] = Dict(id=self.id, old_value=self[key], new_value=val)
+			# if value is not changed, do nothing
+			if key in self and dict.__getitem__(self, key) == val:
+				return
+			# if column does not exist
+			if key not in self.agrows.agdict.cols:
+				raise ValueError(f'Column {key} does not exist. Cannot set value for row id {self.id}.')
+			# else, update server side data
 		super().__setitem__(key, val)
-
+		# then update client side data
 		if 'grids' in self.__dict__:  # if the row is being initialized, skip this
 			for grid in self.grids():
 				asyncio.get_running_loop().create_task(update_grid(grid))
@@ -426,7 +432,7 @@ class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
 			try:
 				await grid.run_row_method(self[self.agrows.id_field], 'setData', self)
 			except TimeoutError:
-				print(f'Debug: Timeout while deleting row {self.id} field {key}.')
+				console.print(f'[bright_black]Debug: Timeout while deleting row {self.id} field {key}.')
 
 		# delete the key server side then update client side
 		super().__delitem__(key)
@@ -435,13 +441,12 @@ class _AgRow(Dict, protected_attrs={'agrows', 'grids', 'id', 'edit_queue'}):
 
 	def _warn() -> None: ...  # type: ignore
 	def _create(self) -> Self:
-		return self.__class__({}, self.agrows, self.agrows.id_field, self.edit_queue, self.grids)
+		return self.__class__({}, self.agrows, self.agrows.id_field, self.grids)
 
 
 _AgRows.register(_AgRow)
 
 # TODO:
 #  - test with complex objects, https://nicegui.io/documentation/aggrid#ag_grid_with_complex_objects
-#  - i think that edit_queue doesnt account for multiple grids
 #  - deal with adding multiple rows with the same index
 #  - deal with sort and filter
